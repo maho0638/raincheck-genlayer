@@ -8,6 +8,7 @@ import "./style.css";
 declare global { interface Window { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } } }
 
 const DEPLOYED_CONTRACT_ADDRESS = "0xb94D1922362B0Ac6936e908DF677aC89D05dFC51";
+const LEGACY_CONTRACT_ADDRESS = DEPLOYED_CONTRACT_ADDRESS;
 const CONTRACT_ADDRESS = (import.meta.env.VITE_CONTRACT_ADDRESS || DEPLOYED_CONTRACT_ADDRESS).trim();
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = $("cover-form") as HTMLFormElement;
@@ -134,17 +135,19 @@ async function refreshPool() {
   try {
     verifiedV2 = false;
     contractOwner = "";
-    try {
-      const version = await readClient.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_contract_version", args: [] });
-      if (version === "raincheck-v2") {
-        const owner = await readClient.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_owner", args: [] });
-        const ownerAddress = String(owner);
-        if (/^0x[0-9a-fA-F]{40}$/.test(ownerAddress)) {
-          contractOwner = ownerAddress.toLowerCase();
-          verifiedV2 = true;
+    if (CONTRACT_ADDRESS.toLowerCase() !== LEGACY_CONTRACT_ADDRESS.toLowerCase()) {
+      try {
+        const version = await readClient.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_contract_version", args: [] });
+        if (version === "raincheck-v2") {
+          const owner = await readClient.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_owner", args: [] });
+          const ownerAddress = String(owner);
+          if (/^0x[0-9a-fA-F]{40}$/.test(ownerAddress)) {
+            contractOwner = ownerAddress.toLowerCase();
+            verifiedV2 = true;
+          }
         }
-      }
-    } catch { /* Legacy contracts remain readable, but are never writable. */ }
+      } catch { /* Unknown contracts stay read-only unless version and owner both verify. */ }
+    }
     updateAdminControls();
     const [available, count] = await Promise.all([
       readClient.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_available_reserve", args: [] }),
