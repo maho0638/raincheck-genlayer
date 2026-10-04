@@ -28,4 +28,4 @@ genvm-lint check contracts/rain_check.py
 
 ## Submission guide
 
-See [`docs/SUBMISSION.md`](docs/SUBMISSION.md) for reviewer notes and the current Studionet release state. The production UI defaults to the deployed V2 address; `VITE_CONTRACT_ADDRESS` can override it for another deployment.
+See [`docs/SUBMISSION.md`](docs/SUBMISSION.md) for reviewer notes and the current Studionet release state. The production UI is pinned to the deployed V2 address so a stale Vercel environment variable cannot silently route users to the legacy contract.
