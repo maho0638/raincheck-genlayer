@@ -6,7 +6,8 @@ import "./style.css";
 
 declare global { interface Window { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } } }
 
-const CONTRACT_ADDRESS = (import.meta.env.VITE_CONTRACT_ADDRESS ?? "").trim();
+const DEPLOYED_CONTRACT_ADDRESS = "0xb94D1922362B0Ac6936e908DF677aC89D05dFC51";
+const CONTRACT_ADDRESS = (import.meta.env.VITE_CONTRACT_ADDRESS || DEPLOYED_CONTRACT_ADDRESS).trim();
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = $("cover-form") as HTMLFormElement;
 const dateInput = $("event-date") as HTMLInputElement;
