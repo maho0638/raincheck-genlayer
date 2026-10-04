@@ -81,6 +81,19 @@ function escapeHtml(value: string) {
 
 function openSample() { demoDialog.showModal(); }
 
+function describeWalletError(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error) return error;
+  if (error && typeof error === "object") {
+    const value = error as { message?: unknown; shortMessage?: unknown; reason?: unknown; code?: unknown; data?: { message?: unknown; originalError?: { message?: unknown } } };
+    for (const message of [value.shortMessage, value.message, value.data?.originalError?.message, value.data?.message, value.reason]) {
+      if (typeof message === "string" && message.trim()) return message.trim();
+    }
+    if (typeof value.code === "string" || typeof value.code === "number") return `Wallet request failed (code ${value.code}).`;
+  }
+  return "The wallet did not complete the GenLayer connection. Reopen the wallet and check its pending request.";
+}
+
 async function connectWallet() {
   if (!verifiedV2) {
     showToast("Writes unlock only after the configured contract verifies as RainCheck V2.");
@@ -97,15 +110,20 @@ async function connectWallet() {
   try {
     const accounts = await window.ethereum.request({ method: "eth_requestAccounts" }) as string[];
     if (!accounts?.[0]) throw new Error("No wallet account was returned.");
-    connectedAddress = accounts[0];
-    walletClient = createClient({ chain: studionet, account: connectedAddress as `0x${string}`, provider: window.ethereum as never });
-    await walletClient.connect("studionet");
+    const nextAddress = accounts[0];
+    const nextWalletClient = createClient({ chain: studionet, account: nextAddress as `0x${string}`, provider: window.ethereum as never });
+    await nextWalletClient.connect("studionet");
+    connectedAddress = nextAddress;
+    walletClient = nextWalletClient;
     walletLabel.textContent = `${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}`;
     updateAdminControls();
     showToast("Wallet connected to Studionet.", "success");
     await refreshPool();
   } catch (error) {
-    showToast(error instanceof Error ? error.message : "Wallet connection failed.", "error");
+    connectedAddress = "";
+    walletClient = undefined;
+    updateAdminControls();
+    showToast(`Wallet connection failed: ${describeWalletError(error)}`, "error");
   }
 }
 
