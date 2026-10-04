@@ -9,7 +9,9 @@ declare global { interface Window { ethereum?: { request(args: { method: string;
 
 const DEPLOYED_CONTRACT_ADDRESS = "0xE25Cb5C035C7E0ae04C5Aa88aB673875bd5F20Ce";
 const LEGACY_CONTRACT_ADDRESS = "0xb94D1922362B0Ac6936e908DF677aC89D05dFC51";
-const CONTRACT_ADDRESS = (import.meta.env.VITE_CONTRACT_ADDRESS || DEPLOYED_CONTRACT_ADDRESS).trim();
+// Production must stay pinned to the V2 contract verified on Studionet.
+// A stale VITE_CONTRACT_ADDRESS in Vercel can silently route users to the legacy contract.
+const CONTRACT_ADDRESS = DEPLOYED_CONTRACT_ADDRESS;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = $("cover-form") as HTMLFormElement;
 const dateInput = $("event-date") as HTMLInputElement;
