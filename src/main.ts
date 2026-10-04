@@ -66,13 +66,26 @@ function renderActivity() {
     const badge = item.sample ? "sample-status" : ["ACTIVE", "APPROVED"].includes(item.status) ? "active-status" : "review-status";
     let action = "";
     if (verifiedV2 && !item.sample && item.coverId) {
-      if (["ACTIVE", "DATA_UNAVAILABLE"].includes(item.status)) action = `<button class="row-action" data-action="resolve" data-id="${item.coverId}">Check claim</button>`;
+      if (item.status === "ACTIVE") action = canResolveEventDay(item.date)
+        ? `<button class="row-action" data-action="resolve" data-id="${item.coverId}">Check claim</button>`
+        : `<button class="row-action" disabled title="Available after the covered UTC day ends">Check claim after event day</button>`;
+      else if (item.status === "DATA_UNAVAILABLE") action = `<button class="row-action" data-action="resolve" data-id="${item.coverId}">Retry check</button>`;
       else if (item.status === "APPROVED") action = `<button class="row-action" data-action="claim" data-id="${item.coverId}">Claim payout</button>`;
       else if (item.status === "SOURCE_REVIEW") action = `<button class="row-action" data-action="retry" data-id="${item.coverId}">Re-check</button><button class="row-action secondary" data-action="refund" data-id="${item.coverId}">Refund premium</button>`;
     }
     row.innerHTML = `<span class="activity-place"><i>◉</i><span><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.location)}${item.sample ? " · illustrative" : ""}</small></span></span><span>${escapeHtml(item.date)}</span><span>≥ ${item.threshold} mm</span><span><i class="status-pill ${badge}">${escapeHtml(item.status === "SAMPLE" ? "Sample proof" : item.status.replaceAll("_", " "))}</i></span><span>${escapeHtml(item.payout)}${action ? `<span class="row-actions">${action}</span>` : ""}</span>`;
     activityRows.append(row);
   }
+}
+
+function canResolveEventDay(eventDate: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(eventDate);
+  if (!match) return false;
+  const [, year, month, day] = match;
+  const eventDayUtc = Date.UTC(Number(year), Number(month) - 1, Number(day));
+  const now = new Date();
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return todayUtc > eventDayUtc;
 }
 
 function escapeHtml(value: string) {
@@ -214,7 +227,7 @@ function updateCoverAvailability() {
   button.disabled = !canCreate;
   button.querySelector("span")!.textContent = canCreate ? "Activate cover" : "Cover unavailable";
   note.textContent = canCreate
-    ? "Verified RainCheck V2 reserve. Connect the pool owner wallet to continue."
+    ? "Shared reserve is ready. Any connected wallet can create a cover."
     : !verifiedV2
       ? "Read-only until a RainCheck V2 contract is deployed and configured."
     : availableReserve === null
@@ -355,12 +368,12 @@ function updateAdminControls() {
   walletLabel.textContent = connectedAddress ? `${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}` : verifiedV2 ? "Connect wallet" : "Legacy · read-only";
   $("fund-pool").toggleAttribute("disabled", !ownerConnected);
   $("withdraw-reserve").toggleAttribute("disabled", !ownerConnected);
-  $("reserve-mode").textContent = verifiedV2 ? ownerConnected ? "V2 · OWNER WALLET" : "V2 · OWNER ONLY" : "LEGACY · READ ONLY";
+  $("reserve-mode").textContent = verifiedV2 ? ownerConnected ? "V2 · OWNER CONNECTED" : "V2 · OWNER CONTROLS" : "LEGACY · READ ONLY";
   $("network-label").textContent = verifiedV2 ? "Studionet · RainCheck V2" : CONTRACT_ADDRESS ? "Studionet · legacy read-only" : "Studionet preview";
   document.body.dataset.mode = verifiedV2 ? "live" : "preview";
-  $("pool-info-title").textContent = verifiedV2 ? "Owner controlled. Payouts stay locked." : "Legacy reserve stays read only.";
+  $("pool-info-title").textContent = verifiedV2 ? "Shared pool. Owner-managed liquidity." : "Legacy reserve stays read only.";
   $("pool-info-copy").textContent = verifiedV2
-    ? "Only the deployer can add test liquidity or withdraw free reserve. Funds backing active covers cannot be withdrawn. Test GEN has no real-world value."
+    ? "Any connected wallet can create a cover while free reserve is available. Only the deployer can add or withdraw test liquidity; payouts backing active covers stay locked. Test GEN has no real-world value."
     : "This configured contract predates owner withdrawal protection. No deposits or transactions are enabled. Deploy RainCheck V2 and configure its address to activate the full flow.";
   updateCoverAvailability();
 }
