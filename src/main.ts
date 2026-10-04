@@ -2,12 +2,14 @@ import { createClient } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
 import { ExecutionResult, TransactionStatus, type CalldataEncodable } from "genlayer-js/types";
 import { buildSourceUrls, decideRainfall, formatRain } from "./weather";
+import { fetchRainEvidence } from "./evidence";
 import "./style.css";
 
 declare global { interface Window { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } } }
 
 const DEPLOYED_CONTRACT_ADDRESS = "0xb94D1922362B0Ac6936e908DF677aC89D05dFC51";
 const CONTRACT_ADDRESS = (import.meta.env.VITE_CONTRACT_ADDRESS || DEPLOYED_CONTRACT_ADDRESS).trim();
+const TRANSACTIONS_PAUSED = true;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = $("cover-form") as HTMLFormElement;
 const dateInput = $("event-date") as HTMLInputElement;
@@ -24,6 +26,8 @@ let readClient: ReturnType<typeof createClient> | undefined;
 let walletClient: ReturnType<typeof createClient> | undefined;
 let toastTimer = 0;
 let demoAdded = false;
+let availableReserve: bigint | null = null;
+const MIN_AVAILABLE_FOR_COVER = 8_000_000_000_000_000n;
 
 type Activity = { title: string; location: string; date: string; threshold: number; status: string; payout: string; sample?: boolean; coverId?: number };
 const activities: Activity[] = [];
@@ -76,6 +80,10 @@ function escapeHtml(value: string) {
 function openSample() { demoDialog.showModal(); }
 
 async function connectWallet() {
+  if (TRANSACTIONS_PAUSED) {
+    showToast("Wallet transactions are paused on this deployment. The Evidence Lab and contract explorer are read-only.");
+    return;
+  }
   if (!CONTRACT_ADDRESS) {
     showToast("Wallet actions unlock after the contract passes local checks and is deployed to Studionet.");
     return;
@@ -99,6 +107,7 @@ async function connectWallet() {
 }
 
 async function sendContractWrite(functionName: string, args: unknown[] = [], value = 0n) {
+  if (TRANSACTIONS_PAUSED) throw new Error("Wallet transactions are paused on this deployment.");
   if (!walletClient || !connectedAddress || !CONTRACT_ADDRESS) throw new Error("Connect a wallet after a Studionet contract address is configured.");
     const hash = await walletClient.writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
@@ -115,17 +124,26 @@ async function sendContractWrite(functionName: string, args: unknown[] = [], val
 }
 
 async function refreshPool() {
-  if (!readClient || !CONTRACT_ADDRESS) return;
+  if (!readClient || !CONTRACT_ADDRESS) {
+    availableReserve = null;
+    updateCoverAvailability();
+    return;
+  }
   try {
     const [available, count] = await Promise.all([
       readClient.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_available_reserve", args: [] }),
       readClient.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_cover_count", args: [] }),
     ]);
-    const gen = Number(available) / 1e18;
+    availableReserve = BigInt(available as bigint | number | string);
+    const gen = Number(availableReserve) / 1e18;
     $("pool-stat").innerHTML = `${gen.toFixed(3)} <small>GEN</small>`;
     $("pool-card-balance").innerHTML = `${gen.toFixed(3)} <small>GEN</small>`;
     $("covers-stat").textContent = String(count);
     $("pool-progress").style.width = `${Math.max(5, Math.min(gen * 20, 100))}%`;
+    updateCoverAvailability();
+    $("reserve-status").textContent = availableReserve >= MIN_AVAILABLE_FOR_COVER
+      ? "Reserve can cover one test payout"
+      : "Below the minimum for a new cover";
     const numericCount = Number(count);
     const onchainRows = await Promise.all(Array.from({ length: Math.min(numericCount, 40) }, (_, index) =>
       readClient!.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_cover", args: [BigInt(index + 1)] })
@@ -144,8 +162,24 @@ async function refreshPool() {
     }
     renderActivity();
   } catch (error) {
+    availableReserve = null;
+    updateCoverAvailability();
+    $("reserve-status").textContent = "Contract read unavailable";
     showToast(error instanceof Error ? `Couldn't refresh contract state: ${error.message}` : "Couldn't refresh contract state.", "error");
   }
+}
+
+function updateCoverAvailability() {
+  const button = $("create-cover") as HTMLButtonElement;
+  const note = $("cover-availability");
+  const canCreate = availableReserve !== null && availableReserve >= MIN_AVAILABLE_FOR_COVER;
+  button.disabled = !canCreate;
+  button.querySelector("span")!.textContent = canCreate ? "Activate cover" : "Cover unavailable";
+  note.textContent = canCreate
+    ? "Reserve read from Studionet. Wallet signing is a separate step."
+    : availableReserve === null
+      ? "Waiting for a successful public reserve read. No transaction is sent."
+      : "This contract cannot pay a new cover right now. Use the read-only Evidence Lab below.";
 }
 
 function parseUnits(value: string) {
@@ -166,11 +200,15 @@ async function activateCover(event: SubmitEvent) {
   const date = dateInput.value;
   try {
     buildSourceUrls(latitude, longitude, date);
+    if (availableReserve === null || availableReserve < MIN_AVAILABLE_FOR_COVER) {
+      showToast("The deployed reserve cannot cover the 0.010 GEN payout. No transaction was sent.", "error");
+      return;
+    }
     if (!CONTRACT_ADDRESS) {
       showToast("The demo is ready, but no on-chain transaction was sent. Configure the tested contract after deployment.");
       return;
     }
-    if (!walletClient) { showToast("Connect your wallet first. This click sent no transaction; after connecting, click again to continue.", "info"); return; }
+    if (!walletClient) { await connectWallet(); if (!walletClient) return; }
     const button = $("create-cover") as HTMLButtonElement;
     button.disabled = true;
     const args = [Math.round(latitude * 10000), Math.round(longitude * 10000), date, BigInt(threshold)];
@@ -186,9 +224,71 @@ async function activateCover(event: SubmitEvent) {
   }
 }
 
-function fundPool() {
-  showToast("Funding is paused: the deployed contract has no reserve withdrawal function. Do not send GEN to this address.", "error");
+function initializeEvidenceLab() {
+  const form = $("evidence-form") as HTMLFormElement;
+  const dateField = $("lab-date") as HTMLInputElement;
+  const now = new Date();
+  const yesterday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+  const historical = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 31));
+  const iso = (date: Date) => date.toISOString().slice(0, 10);
+  dateField.max = iso(yesterday);
+  dateField.min = "1981-01-01";
+  dateField.value = iso(historical);
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = $("run-evidence") as HTMLButtonElement;
+    const status = $("lab-status");
+    const result = $("lab-result");
+    const openValue = $("lab-open-value");
+    const nasaValue = $("lab-nasa-value");
+    const openError = $("lab-open-error");
+    const nasaError = $("lab-nasa-error");
+    button.disabled = true;
+    result.classList.add("hidden");
+    status.textContent = "Requesting archived readings from both public sources…";
+    try {
+      const preview = await fetchRainEvidence(
+        Number(($("lab-latitude") as HTMLInputElement).value),
+        Number(($("lab-longitude") as HTMLInputElement).value),
+        dateField.value,
+        Number(($("lab-threshold") as HTMLInputElement).value),
+      );
+      const openLink = $("lab-open-link") as HTMLAnchorElement;
+      const nasaLink = $("lab-nasa-link") as HTMLAnchorElement;
+      openLink.href = preview.sourceUrls.primary;
+      nasaLink.href = preview.sourceUrls.corroborating;
+      openValue.textContent = formatRain(preview.openMeteoMm);
+      nasaValue.textContent = formatRain(preview.nasaPowerMm);
+      openError.textContent = preview.sourceErrors.openMeteo ?? "Retrieved";
+      nasaError.textContent = preview.sourceErrors.nasaPower ?? "Retrieved";
+      $("lab-decision-value").textContent = preview.decision.replaceAll("_", " ");
+      $("lab-decision-value").dataset.decision = preview.decision.toLowerCase();
+      $("lab-retrieved").textContent = `Retrieved ${new Date(preview.retrievedAt).toLocaleString()} · UTC day ${preview.eventDate}`;
+      result.classList.remove("hidden");
+      status.textContent = preview.decision === "DATA_UNAVAILABLE"
+        ? "At least one source did not return a valid reading. The result is unavailable, not a zero-rain verdict."
+        : "Both source responses are shown below. This browser preview sent no transaction.";
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : "Could not fetch archived evidence.";
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
+
+async function fundPool() {
+  try {
+    if (!CONTRACT_ADDRESS) { showToast("Pool funding is disabled until the contract is tested and deployed to Studionet."); return; }
+    if (!walletClient) { await connectWallet(); if (!walletClient) return; }
+    await sendContractWrite("seed_reserve", [], parseUnits("0.050"));
+    await refreshPool();
+    showToast("Test liquidity was added to the pool.", "success");
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "Could not fund the pool.", "error");
+  }
+}
+
 function showSampleInActivity() {
   if (!demoAdded) {
     activities.push({ title: "Sample · Istanbul rainfall", location: "Istanbul, Türkiye", date: "19 Sep 2026", threshold: 30, status: "SAMPLE", payout: "No token moved", sample: true });
@@ -261,6 +361,7 @@ $("menu-toggle").addEventListener("click", () => document.querySelector(".main-n
 dateInput.addEventListener("change", () => { try { buildSourceUrls(Number(latitudeInput.value), Number(longitudeInput.value), dateInput.value); } catch { /* Native date validation is shown on submit. */ } });
 
 setDateLimits();
+initializeEvidenceLab();
 updateThreshold();
 setMode();
 renderActivity();

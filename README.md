@@ -1,35 +1,31 @@
 # RainCheck Protocol
 
-RainCheck is a Studionet prototype for weather-triggered micro-cover. A user agrees to a location, UTC day and rainfall threshold before the event. After the day ends, the Intelligent Contract reads compact daily-rainfall evidence from Open-Meteo Archive and NASA POWER. GenLayer validators independently re-check those public values; the contract applies the fixed threshold and either approves a capped payout, rejects the trigger, pauses on a source conflict, or permits a premium refund.
+RainCheck is a GenLayer Studionet prototype for rainfall-triggered micro-cover. Before an event, a cover fixes a location, UTC day, rainfall threshold, premium and capped payout. After the day ends, the Intelligent Contract retrieves rainfall evidence from Open-Meteo Archive and NASA POWER. GenLayer validator consensus checks the evidence and the contract applies the agreed rule: approve a matching trigger, reject a non-trigger, pause when sources disagree, or leave missing evidence retryable.
 
-## What is implemented
+## Product flow
 
-- Responsive product interface with an explicit sample walkthrough and no fabricated on-chain results.
-- GenLayer Intelligent Contract with a liquidity reserve, fixed 0.002 GEN test premium, fixed 0.010 GEN maximum payout, date and coordinate bounds, evidence comparison, payout, and conflict refund.
-- TypeScript browser client using the official `genlayer-js` SDK. Wallet actions remain locked until a contract address is configured.
-- Unit coverage for decision boundaries, missing sources, source conflicts, reserve accounting, refunds and one-time payouts.
+- **Read-only Evidence Lab:** Fetches archived values for a chosen past day from both public APIs in the browser. The comparison is labeled as a local preview and never submits a transaction.
+- **Contract explorer:** The page reads the deployed Studionet contract reserve and cover records without a wallet.
+- **Wallet writes:** Paused on this deployment. The currently deployed contract has no reserve withdrawal function and the available reserve cannot cover a new maximum payout. The UI blocks wallet connection, new cover creation, pool funding and contract writes. Do not send funds to the old contract. Re-enable writes only after reviewing and deploying a new contract with a safe funding and withdrawal design.
+- **Sample walkthrough:** Clearly illustrative and labeled; it is not represented as a real contract record.
 
-## Run locally
+## Contract rule
+
+`contracts/rain_check.py` stores fixed cover terms and uses a 0.002 GEN test premium with a 0.010 GEN maximum payout. Open-Meteo is the primary trigger source and NASA POWER corroborates it. A source conflict enters `SOURCE_REVIEW`; the owner can request a premium refund. Missing data stays retryable. If both sources confirm rainfall below the threshold, the reserved payout is released. These testnet values have no real-world value; this is not an insurance product.
+
+## Run and test
 
 ```bash
 npm install
-npm test
-npm run build
-python -m pip install -r requirements-dev.txt
+npm run check
+python -m unittest discover -s tests -p 'test*.py' -v
+python -m py_compile contracts/rain_check.py
 python tests/run_direct_vm.py
 genvm-lint check contracts/rain_check.py
 ```
 
-The current Studionet contract address is configured in `.env.example` and as a safe frontend fallback. Public contract state loads without a wallet. Wallet writes require a wallet connected to Studionet; use test GEN only. The current deployment is a testnet prototype, not an insurance product.
+`npm run check` runs browser logic tests and the Vite production build. The Python unit tests cover reserve accounting and settlement outcomes. Direct Mode exercises the contract against mocked weather responses and validator results. `genvm-lint check` runs both GenVM safety checks and SDK semantic validation; the linter needs a writable artifact cache and network access on its first run.
 
-## Contract
+## Submission guide
 
-`contracts/rain_check.py` contains the Intelligent Contract. Its source URLs and settlement rule are fixed in code. Open-Meteo is the primary payout trigger and NASA POWER is a corroborating source. If both sources disagree on whether the threshold was met, payout stops and the cover owner can reclaim the premium. If data is unavailable, the claim can be retried. If both sources agree that the threshold was not met, the reserved payout is released to the pool.
-
-The exact premium and payout are deliberately small testnet amounts. This prototype is not an insurance product and has no mainnet value. Do not send mainnet assets. The currently deployed prototype has no reserve withdrawal function. Do not call `seed_reserve`; the web interface now blocks pool funding. A safer reserve design requires a newly deployed contract.
-
-## Test limits
-
-Python unit tests use a small GenLayer API shim and controlled HTTP responses to exercise accounting and settlement branches. The Direct Mode test loads the contract with GenLayer storage types and controlled web responses; its compatibility runner bridges the older `py-genlayer` contract pin to the current `genlayer-test` API. It verifies cover creation, both evidence endpoints, matching and different validator results, approval, no trigger, source conflict, premium refund, payout state, and retry after missing data. `genvm-lint check` runs VM safety and SDK semantic validation. The Direct Mode compatibility runner evaluates the validator callback locally; it does not replace live multi-validator consensus or an on-chain transfer test.
-
-The frontend is connected to the RainCheck contract deployed on Studionet. The live interface reads the reserve and cover activity without a wallet. Creating covers, funding the pool, resolving a claim, claiming a payout, and requesting a conflict refund require a wallet signature and test GEN. Never connect a mainnet wallet or send mainnet assets to this prototype.
+See [`docs/SUBMISSION.md`](docs/SUBMISSION.md) for a concise reviewer description, demo path and current readiness limits.
