@@ -20,7 +20,7 @@ python tests/run_direct_vm.py
 genvm-lint check contracts/rain_check.py
 ```
 
-The site starts in preview mode while `VITE_CONTRACT_ADDRESS` is blank. Copy `.env.example` to `.env.local` only after the contract is reviewed and deployed to Studionet. The connected wallet must use Studionet and test GEN only.
+The current Studionet contract address is configured in `.env.example` and as a safe frontend fallback. Public contract state loads without a wallet. Wallet writes require a wallet connected to Studionet; use test GEN only. The current deployment is a testnet prototype, not an insurance product.
 
 ## Contract
 
@@ -32,4 +32,4 @@ The exact premium and payout are deliberately small testnet amounts. This protot
 
 Python unit tests use a small GenLayer API shim and controlled HTTP responses to exercise accounting and settlement branches. The Direct Mode test loads the contract with GenLayer storage types and controlled web responses; its compatibility runner bridges the older `py-genlayer` contract pin to the current `genlayer-test` API. It verifies cover creation, both evidence endpoints, matching and different validator results, approval, no trigger, source conflict, premium refund, payout state, and retry after missing data. `genvm-lint check` runs VM safety and SDK semantic validation. The Direct Mode compatibility runner evaluates the validator callback locally; it does not replace live multi-validator consensus or an on-chain transfer test.
 
-The contract has not been deployed and the frontend is not connected to a live contract. Until a reviewed Studionet contract address is set as `VITE_CONTRACT_ADDRESS`, the site stays in preview mode and wallet writes remain disabled. Use test GEN only.
+The frontend is connected to the RainCheck contract deployed on Studionet. The live interface reads the reserve and cover activity without a wallet. Creating covers, funding the pool, resolving a claim, claiming a payout, and requesting a conflict refund require a wallet signature and test GEN. Never connect a mainnet wallet or send mainnet assets to this prototype.

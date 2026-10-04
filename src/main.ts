@@ -88,9 +88,7 @@ async function connectWallet() {
     const accounts = await window.ethereum.request({ method: "eth_requestAccounts" }) as string[];
     if (!accounts?.[0]) throw new Error("No wallet account was returned.");
     connectedAddress = accounts[0];
-    const [sdk, chains] = await Promise.all([import("genlayer-js"), import("genlayer-js/chains")]);
-    readClient = sdk.createClient({ chain: chains.studionet });
-    walletClient = sdk.createClient({ chain: chains.studionet, account: connectedAddress as `0x${string}`, provider: window.ethereum as never });
+    walletClient = createClient({ chain: studionet, account: connectedAddress as `0x${string}`, provider: window.ethereum as never });
     await walletClient.connect("studionet");
     walletLabel.textContent = `${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}`;
     showToast("Wallet connected to Studionet.", "success");
@@ -275,3 +273,7 @@ setDateLimits();
 updateThreshold();
 setMode();
 renderActivity();
+if (CONTRACT_ADDRESS) {
+  readClient = createClient({ chain: studionet });
+  void refreshPool();
+}
