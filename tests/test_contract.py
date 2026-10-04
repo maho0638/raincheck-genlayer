@@ -86,9 +86,9 @@ contract_module._Recipient = FakeRecipient
 
 class RainCheckContractTests(unittest.TestCase):
     def setUp(self):
-        self.contract = contract_module.RainCheck()
         FakeRecipient.transfers = []
         self.set_context("2026-10-04T00:00:00+00:00", "0xunderwriter", 0)
+        self.contract = contract_module.RainCheck()
 
     @staticmethod
     def set_context(when, sender, value):
@@ -97,7 +97,45 @@ class RainCheckContractTests(unittest.TestCase):
 
     def funded_contract(self):
         self.set_context("2026-10-04T00:00:00+00:00", "0xunderwriter", contract_module.MIN_RESERVE_WEI)
-        self.contract.seed_reserve()
+        self.contract.fund_reserve()
+
+    def test_contract_version_and_owner_are_exposed(self):
+        self.assertEqual(self.contract.get_contract_version(), "raincheck-v2")
+        self.assertEqual(self.contract.get_owner(), FakeAddress("0xunderwriter"))
+
+    def test_owner_can_withdraw_only_free_reserve(self):
+        self.funded_contract()
+        self.create_cover()
+        state = self.contract.get_reserve_state()
+        self.assertEqual(state["locked_payouts"], contract_module.PAYOUT_WEI)
+        self.assertEqual(state["available_reserve"], 42_000_000_000_000_000)
+
+        self.set_context("2026-10-04T00:00:00+00:00", "0xunderwriter", 0)
+        with self.assertRaises(gl.vm.UserError):
+            self.contract.withdraw_reserve(43_000_000_000_000_000)
+        self.contract.withdraw_reserve(42_000_000_000_000_000)
+        state = self.contract.get_reserve_state()
+        self.assertEqual(state["available_reserve"], 0)
+        self.assertEqual(state["locked_payouts"], contract_module.PAYOUT_WEI)
+        self.assertEqual(FakeRecipient.transfers[-1], (FakeAddress("0xunderwriter"), 42_000_000_000_000_000))
+
+    def test_only_owner_can_fund_or_withdraw_and_zero_withdrawals_fail(self):
+        self.set_context("2026-10-04T00:00:00+00:00", "0xstranger", contract_module.MIN_RESERVE_WEI)
+        with self.assertRaises(gl.vm.UserError):
+            self.contract.fund_reserve()
+        self.set_context("2026-10-04T00:00:00+00:00", "0xunderwriter", contract_module.MIN_RESERVE_WEI)
+        self.contract.fund_reserve()
+        self.contract = contract_module.RainCheck()
+        self.set_context("2026-10-04T00:00:00+00:00", "0xunderwriter", contract_module.MIN_FUND_WEI - 1)
+        with self.assertRaises(gl.vm.UserError):
+            self.contract.fund_reserve()
+        self.contract = contract_module.RainCheck()
+        self.set_context("2026-10-04T00:00:00+00:00", "0xstranger", 0)
+        with self.assertRaises(gl.vm.UserError):
+            self.contract.withdraw_reserve(1)
+        self.set_context("2026-10-04T00:00:00+00:00", "0xunderwriter", 0)
+        with self.assertRaises(gl.vm.UserError):
+            self.contract.withdraw_reserve(0)
 
     def create_cover(self):
         self.set_context("2026-10-04T00:00:00+00:00", "0xcovered-user", contract_module.PREMIUM_WEI)

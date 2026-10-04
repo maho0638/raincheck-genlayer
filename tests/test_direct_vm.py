@@ -5,15 +5,17 @@ import json
 
 def test_cover_creation_and_two_source_settlement(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy("contracts/rain_check.py")
+    assert contract.get_contract_version() == "raincheck-v2"
     assert contract.get_cover_count() == 0
     assert contract.get_available_reserve() == 0
     assert contract.get_cover(1) == {"found": False}
 
     direct_vm.warp("2026-10-04T00:00:00Z")
-    direct_vm.sender = direct_alice
+    direct_vm.sender = contract.get_owner()
     direct_vm.value = 50_000_000_000_000_000
-    contract.seed_reserve()
+    contract.fund_reserve()
 
+    direct_vm.sender = direct_alice
     direct_vm.value = 2_000_000_000_000_000
     cover_id = contract.buy_cover(410082, 289784, "2026-10-05", 30)
     assert cover_id == 1

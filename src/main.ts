@@ -9,7 +9,6 @@ declare global { interface Window { ethereum?: { request(args: { method: string;
 
 const DEPLOYED_CONTRACT_ADDRESS = "0xb94D1922362B0Ac6936e908DF677aC89D05dFC51";
 const CONTRACT_ADDRESS = (import.meta.env.VITE_CONTRACT_ADDRESS || DEPLOYED_CONTRACT_ADDRESS).trim();
-const TRANSACTIONS_PAUSED = true;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = $("cover-form") as HTMLFormElement;
 const dateInput = $("event-date") as HTMLInputElement;
@@ -27,6 +26,8 @@ let walletClient: ReturnType<typeof createClient> | undefined;
 let toastTimer = 0;
 let demoAdded = false;
 let availableReserve: bigint | null = null;
+let verifiedV2 = false;
+let contractOwner = "";
 const MIN_AVAILABLE_FOR_COVER = 8_000_000_000_000_000n;
 
 type Activity = { title: string; location: string; date: string; threshold: number; status: string; payout: string; sample?: boolean; coverId?: number };
@@ -63,7 +64,7 @@ function renderActivity() {
     row.className = "activity-row";
     const badge = item.sample ? "sample-status" : ["ACTIVE", "APPROVED"].includes(item.status) ? "active-status" : "review-status";
     let action = "";
-    if (!item.sample && item.coverId) {
+    if (verifiedV2 && !item.sample && item.coverId) {
       if (["ACTIVE", "DATA_UNAVAILABLE"].includes(item.status)) action = `<button class="row-action" data-action="resolve" data-id="${item.coverId}">Check claim</button>`;
       else if (item.status === "APPROVED") action = `<button class="row-action" data-action="claim" data-id="${item.coverId}">Claim payout</button>`;
       else if (item.status === "SOURCE_REVIEW") action = `<button class="row-action" data-action="retry" data-id="${item.coverId}">Re-check</button><button class="row-action secondary" data-action="refund" data-id="${item.coverId}">Refund premium</button>`;
@@ -80,8 +81,8 @@ function escapeHtml(value: string) {
 function openSample() { demoDialog.showModal(); }
 
 async function connectWallet() {
-  if (TRANSACTIONS_PAUSED) {
-    showToast("Wallet transactions are paused on this deployment. The Evidence Lab and contract explorer are read-only.");
+  if (!verifiedV2) {
+    showToast("Writes unlock only after the configured contract verifies as RainCheck V2.");
     return;
   }
   if (!CONTRACT_ADDRESS) {
@@ -99,6 +100,7 @@ async function connectWallet() {
     walletClient = createClient({ chain: studionet, account: connectedAddress as `0x${string}`, provider: window.ethereum as never });
     await walletClient.connect("studionet");
     walletLabel.textContent = `${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}`;
+    updateAdminControls();
     showToast("Wallet connected to Studionet.", "success");
     await refreshPool();
   } catch (error) {
@@ -107,7 +109,7 @@ async function connectWallet() {
 }
 
 async function sendContractWrite(functionName: string, args: unknown[] = [], value = 0n) {
-  if (TRANSACTIONS_PAUSED) throw new Error("Wallet transactions are paused on this deployment.");
+  if (!verifiedV2) throw new Error("Writes are disabled: the configured contract did not verify as RainCheck V2.");
   if (!walletClient || !connectedAddress || !CONTRACT_ADDRESS) throw new Error("Connect a wallet after a Studionet contract address is configured.");
     const hash = await walletClient.writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
@@ -130,6 +132,20 @@ async function refreshPool() {
     return;
   }
   try {
+    verifiedV2 = false;
+    contractOwner = "";
+    try {
+      const version = await readClient.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_contract_version", args: [] });
+      if (version === "raincheck-v2") {
+        const owner = await readClient.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_owner", args: [] });
+        const ownerAddress = String(owner);
+        if (/^0x[0-9a-fA-F]{40}$/.test(ownerAddress)) {
+          contractOwner = ownerAddress.toLowerCase();
+          verifiedV2 = true;
+        }
+      }
+    } catch { /* Legacy contracts remain readable, but are never writable. */ }
+    updateAdminControls();
     const [available, count] = await Promise.all([
       readClient.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_available_reserve", args: [] }),
       readClient.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_cover_count", args: [] }),
@@ -142,8 +158,8 @@ async function refreshPool() {
     $("pool-progress").style.width = `${Math.max(5, Math.min(gen * 20, 100))}%`;
     updateCoverAvailability();
     $("reserve-status").textContent = availableReserve >= MIN_AVAILABLE_FOR_COVER
-      ? "Reserve can cover one test payout"
-      : "Below the minimum for a new cover";
+      ? verifiedV2 ? "V2 reserve can cover one test payout" : "Legacy reserve · writes are read-only"
+      : verifiedV2 ? "V2 reserve below minimum for a new cover" : "Legacy contract · writes are read-only";
     const numericCount = Number(count);
     const onchainRows = await Promise.all(Array.from({ length: Math.min(numericCount, 40) }, (_, index) =>
       readClient!.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_cover", args: [BigInt(index + 1)] })
@@ -165,6 +181,7 @@ async function refreshPool() {
     availableReserve = null;
     updateCoverAvailability();
     $("reserve-status").textContent = "Contract read unavailable";
+    updateAdminControls();
     showToast(error instanceof Error ? `Couldn't refresh contract state: ${error.message}` : "Couldn't refresh contract state.", "error");
   }
 }
@@ -172,11 +189,13 @@ async function refreshPool() {
 function updateCoverAvailability() {
   const button = $("create-cover") as HTMLButtonElement;
   const note = $("cover-availability");
-  const canCreate = availableReserve !== null && availableReserve >= MIN_AVAILABLE_FOR_COVER;
+  const canCreate = verifiedV2 && availableReserve !== null && availableReserve >= MIN_AVAILABLE_FOR_COVER;
   button.disabled = !canCreate;
   button.querySelector("span")!.textContent = canCreate ? "Activate cover" : "Cover unavailable";
   note.textContent = canCreate
-    ? "Reserve read from Studionet. Wallet signing is a separate step."
+    ? "Verified RainCheck V2 reserve. Connect the pool owner wallet to continue."
+    : !verifiedV2
+      ? "Read-only until a RainCheck V2 contract is deployed and configured."
     : availableReserve === null
       ? "Waiting for a successful public reserve read. No transaction is sent."
       : "This contract cannot pay a new cover right now. Use the read-only Evidence Lab below.";
@@ -199,6 +218,7 @@ async function activateCover(event: SubmitEvent) {
   const threshold = Number(thresholdInput.value);
   const date = dateInput.value;
   try {
+    if (!verifiedV2) throw new Error("This contract is read-only. Deploy and configure RainCheck V2 before creating covers.");
     buildSourceUrls(latitude, longitude, date);
     if (availableReserve === null || availableReserve < MIN_AVAILABLE_FOR_COVER) {
       showToast("The deployed reserve cannot cover the 0.010 GEN payout. No transaction was sent.", "error");
@@ -280,13 +300,48 @@ function initializeEvidenceLab() {
 async function fundPool() {
   try {
     if (!CONTRACT_ADDRESS) { showToast("Pool funding is disabled until the contract is tested and deployed to Studionet."); return; }
+    if (!verifiedV2) { showToast("Funding is disabled because this contract is not verified as RainCheck V2.", "error"); return; }
     if (!walletClient) { await connectWallet(); if (!walletClient) return; }
-    await sendContractWrite("seed_reserve", [], parseUnits("0.050"));
+    if (connectedAddress.toLowerCase() !== contractOwner) throw new Error("Only the verified pool owner can add test liquidity.");
+    await sendContractWrite("fund_reserve", [], parseUnits(($("fund-amount") as HTMLInputElement).value));
     await refreshPool();
     showToast("Test liquidity was added to the pool.", "success");
   } catch (error) {
     showToast(error instanceof Error ? error.message : "Could not fund the pool.", "error");
   }
+}
+
+async function withdrawPool() {
+  try {
+    if (!verifiedV2 || !walletClient || connectedAddress.toLowerCase() !== contractOwner) {
+      throw new Error("Connect the verified pool owner wallet before withdrawing free reserve.");
+    }
+    await sendContractWrite("withdraw_reserve", [parseUnits(($("withdraw-amount") as HTMLInputElement).value)]);
+    await refreshPool();
+    showToast("Free reserve returned to the pool owner.", "success");
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "Could not withdraw free reserve.", "error");
+  }
+}
+
+function updateAdminControls() {
+  const ownerConnected = Boolean(connectedAddress && contractOwner && connectedAddress.toLowerCase() === contractOwner);
+  const admin = $("reserve-admin");
+  admin.classList.toggle("hidden", !verifiedV2);
+  const connect = $("connect-wallet") as HTMLButtonElement;
+  connect.disabled = !verifiedV2;
+  connect.title = verifiedV2 ? "Connect a wallet on Studionet" : "Writes unlock only for a verified RainCheck V2 contract";
+  walletLabel.textContent = connectedAddress ? `${connectedAddress.slice(0, 6)}…${connectedAddress.slice(-4)}` : verifiedV2 ? "Connect wallet" : "Legacy · read-only";
+  $("fund-pool").toggleAttribute("disabled", !ownerConnected);
+  $("withdraw-reserve").toggleAttribute("disabled", !ownerConnected);
+  $("reserve-mode").textContent = verifiedV2 ? ownerConnected ? "V2 · OWNER WALLET" : "V2 · OWNER ONLY" : "LEGACY · READ ONLY";
+  $("network-label").textContent = verifiedV2 ? "Studionet · RainCheck V2" : CONTRACT_ADDRESS ? "Studionet · legacy read-only" : "Studionet preview";
+  document.body.dataset.mode = verifiedV2 ? "live" : "preview";
+  $("pool-info-title").textContent = verifiedV2 ? "Owner controlled. Payouts stay locked." : "Legacy reserve stays read only.";
+  $("pool-info-copy").textContent = verifiedV2
+    ? "Only the deployer can add test liquidity or withdraw free reserve. Funds backing active covers cannot be withdrawn. Test GEN has no real-world value."
+    : "This configured contract predates owner withdrawal protection. No deposits or transactions are enabled. Deploy RainCheck V2 and configure its address to activate the full flow.";
+  updateCoverAvailability();
 }
 
 function showSampleInActivity() {
@@ -321,8 +376,8 @@ async function useBrowserLocation() {
 
 function setMode() {
   if (CONTRACT_ADDRESS) {
-    $("network-label").textContent = "Studionet · contract configured";
-    document.body.dataset.mode = "live";
+    $("network-label").textContent = "Studionet · checking contract";
+    document.body.dataset.mode = "preview";
   } else {
     $("network-label").textContent = "Studionet preview";
     document.body.dataset.mode = "preview";
@@ -336,6 +391,7 @@ $("open-demo").addEventListener("click", openSample);
 $("close-demo").addEventListener("click", () => demoDialog.close());
 $("show-sample").addEventListener("click", showSampleInActivity);
 $("fund-pool").addEventListener("click", fundPool);
+$("withdraw-reserve").addEventListener("click", withdrawPool);
 $("refresh-activity").addEventListener("click", refreshPool);
 activityRows.addEventListener("click", async (event) => {
   const target = event.target as HTMLElement;
@@ -346,6 +402,7 @@ activityRows.addEventListener("click", async (event) => {
   const functionName = action === "claim" ? "claim_payout" : action === "refund" ? "refund_source_conflict" : "resolve_claim";
   button.disabled = true;
   try {
+    if (!walletClient) { await connectWallet(); if (!walletClient) { button.disabled = false; return; } }
     await sendContractWrite(functionName, [BigInt(coverId)]);
     await refreshPool();
     showToast(action === "claim" ? "Payout request finalized." : action === "refund" ? "Premium refund requested." : "Evidence checked by the contract.", "success");

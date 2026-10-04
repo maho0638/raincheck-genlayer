@@ -6,12 +6,12 @@ RainCheck is a GenLayer Studionet prototype for rainfall-triggered micro-cover. 
 
 - **Read-only Evidence Lab:** Fetches archived values for a chosen past day from both public APIs in the browser. The comparison is labeled as a local preview and never submits a transaction.
 - **Contract explorer:** The page reads the deployed Studionet contract reserve and cover records without a wallet.
-- **Wallet writes:** Paused on this deployment. The currently deployed contract has no reserve withdrawal function and the available reserve cannot cover a new maximum payout. The UI blocks wallet connection, new cover creation, pool funding and contract writes. Do not send funds to the old contract. Re-enable writes only after reviewing and deploying a new contract with a safe funding and withdrawal design.
+- **Wallet writes:** The existing deployment stays read-only because its contract has no reserve withdrawal function. The updated UI unlocks writes only when the configured address proves it is RainCheck V2. V2 restricts funding and withdrawals to its deployer and caps withdrawals at free reserve after locked payouts. Do not fund the old address.
 - **Sample walkthrough:** Clearly illustrative and labeled; it is not represented as a real contract record.
 
 ## Contract rule
 
-`contracts/rain_check.py` stores fixed cover terms and uses a 0.002 GEN test premium with a 0.010 GEN maximum payout. Open-Meteo is the primary trigger source and NASA POWER corroborates it. A source conflict enters `SOURCE_REVIEW`; the owner can request a premium refund. Missing data stays retryable. If both sources confirm rainfall below the threshold, the reserved payout is released. These testnet values have no real-world value; this is not an insurance product.
+`contracts/rain_check.py` (RainCheck V2) stores fixed cover terms and uses a 0.002 GEN test premium with a 0.010 GEN maximum payout. The deployer is the pool owner. Owner-only `fund_reserve` accepts at least 0.001 GEN, while `withdraw_reserve` can transfer only uncommitted liquidity (`total_reserve - locked_payouts`). Open-Meteo is the primary trigger source and NASA POWER corroborates it. A source conflict enters `SOURCE_REVIEW`; the refund returns the premium to the cover owner. Missing data stays retryable. If both sources confirm rainfall below the threshold, the reserved payout is released. These testnet values have no real-world value; this is not an insurance product.
 
 ## Run and test
 
@@ -28,4 +28,4 @@ genvm-lint check contracts/rain_check.py
 
 ## Submission guide
 
-See [`docs/SUBMISSION.md`](docs/SUBMISSION.md) for a concise reviewer description, demo path and current readiness limits.
+See [`docs/SUBMISSION.md`](docs/SUBMISSION.md) for reviewer notes and the final Studionet deployment checklist. Before enabling wallet writes in production, deploy V2 from `contracts/rain_check.py` and set `VITE_CONTRACT_ADDRESS` to that deployment.

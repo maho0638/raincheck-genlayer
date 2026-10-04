@@ -8,6 +8,7 @@ from genlayer import *
 PREMIUM_WEI = u256(2_000_000_000_000_000)  # 0.002 GEN
 PAYOUT_WEI = u256(10_000_000_000_000_000)  # 0.010 GEN
 MIN_RESERVE_WEI = u256(50_000_000_000_000_000)  # 0.050 GEN
+MIN_FUND_WEI = u256(1_000_000_000_000_000)  # 0.001 GEN
 MAX_COVER_DAYS = 90
 
 
@@ -37,12 +38,14 @@ class _Recipient:
 
 
 class RainCheck(gl.Contract):
+    owner: Address
     covers: DynArray[RainCover]
     total_reserve: u256
     locked_payouts: u256
     total_paid: u256
 
     def __init__(self):
+        self.owner = gl.message.sender_address
         self.covers = []
         self.total_reserve = u256(0)
         self.locked_payouts = u256(0)
@@ -73,12 +76,28 @@ class RainCheck(gl.Contract):
         )
         return open_meteo, nasa_power
 
+    def _only_owner(self) -> None:
+        if gl.message.sender_address != self.owner:
+            raise gl.vm.UserError("Only the pool owner can manage reserve funds.")
+
     @gl.public.write.payable
-    def seed_reserve(self) -> None:
+    def fund_reserve(self) -> None:
+        self._only_owner()
         amount = gl.message.value
-        if amount < MIN_RESERVE_WEI:
-            raise gl.vm.UserError("Seed at least 0.050 GEN of Studionet test liquidity.")
+        if amount < MIN_FUND_WEI:
+            raise gl.vm.UserError("Add at least 0.001 GEN of Studionet test liquidity.")
         self.total_reserve += amount
+
+    @gl.public.write
+    def withdraw_reserve(self, amount: u256) -> None:
+        self._only_owner()
+        if amount == 0:
+            raise gl.vm.UserError("Withdrawal amount must be greater than zero.")
+        available = self.total_reserve - self.locked_payouts
+        if amount > available:
+            raise gl.vm.UserError("Withdrawal exceeds free reserve; cover payouts stay locked.")
+        self.total_reserve -= amount
+        _Recipient(self.owner).emit_transfer(value=amount)
 
     @gl.public.write.payable
     def buy_cover(
@@ -212,6 +231,23 @@ class RainCheck(gl.Contract):
         self.total_reserve -= cover.premium_wei
         self.locked_payouts -= cover.payout_wei
         _Recipient(cover.owner).emit_transfer(value=cover.premium_wei)
+
+    @gl.public.view
+    def get_contract_version(self) -> str:
+        return "raincheck-v2"
+
+    @gl.public.view
+    def get_owner(self) -> Address:
+        return self.owner
+
+    @gl.public.view
+    def get_reserve_state(self) -> dict:
+        return {
+            "total_reserve": self.total_reserve,
+            "locked_payouts": self.locked_payouts,
+            "available_reserve": self.total_reserve - self.locked_payouts,
+            "total_paid": self.total_paid,
+        }
 
     @gl.public.view
     def get_cover_count(self) -> u256:
