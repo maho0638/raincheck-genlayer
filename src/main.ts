@@ -170,7 +170,7 @@ async function activateCover(event: SubmitEvent) {
       showToast("The demo is ready, but no on-chain transaction was sent. Configure the tested contract after deployment.");
       return;
     }
-    if (!walletClient) { await connectWallet(); if (!walletClient) return; }
+    if (!walletClient) { showToast("Connect your wallet first. This click sent no transaction; after connecting, click again to continue.", "info"); return; }
     const button = $("create-cover") as HTMLButtonElement;
     button.disabled = true;
     const args = [Math.round(latitude * 10000), Math.round(longitude * 10000), date, BigInt(threshold)];
@@ -186,18 +186,9 @@ async function activateCover(event: SubmitEvent) {
   }
 }
 
-async function fundPool() {
-  try {
-    if (!CONTRACT_ADDRESS) { showToast("Pool funding is disabled until the contract is tested and deployed to Studionet."); return; }
-    if (!walletClient) { await connectWallet(); if (!walletClient) return; }
-    await sendContractWrite("seed_reserve", [], parseUnits("0.050"));
-    await refreshPool();
-    showToast("Test liquidity was added to the pool.", "success");
-  } catch (error) {
-    showToast(error instanceof Error ? error.message : "Could not fund the pool.", "error");
-  }
+function fundPool() {
+  showToast("Funding is paused: the deployed contract has no reserve withdrawal function. Do not send GEN to this address.", "error");
 }
-
 function showSampleInActivity() {
   if (!demoAdded) {
     activities.push({ title: "Sample · Istanbul rainfall", location: "Istanbul, Türkiye", date: "19 Sep 2026", threshold: 30, status: "SAMPLE", payout: "No token moved", sample: true });

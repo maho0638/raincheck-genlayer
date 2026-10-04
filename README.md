@@ -26,7 +26,7 @@ The current Studionet contract address is configured in `.env.example` and as a 
 
 `contracts/rain_check.py` contains the Intelligent Contract. Its source URLs and settlement rule are fixed in code. Open-Meteo is the primary payout trigger and NASA POWER is a corroborating source. If both sources disagree on whether the threshold was met, payout stops and the cover owner can reclaim the premium. If data is unavailable, the claim can be retried. If both sources agree that the threshold was not met, the reserved payout is released to the pool.
 
-The exact premium and payout are deliberately small testnet amounts. This prototype is not an insurance product and has no mainnet value. Do not send mainnet assets.
+The exact premium and payout are deliberately small testnet amounts. This prototype is not an insurance product and has no mainnet value. Do not send mainnet assets. The currently deployed prototype has no reserve withdrawal function. Do not call `seed_reserve`; the web interface now blocks pool funding. A safer reserve design requires a newly deployed contract.
 
 ## Test limits
 
