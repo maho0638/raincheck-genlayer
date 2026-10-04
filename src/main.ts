@@ -209,11 +209,12 @@ function showSampleInActivity() {
   document.getElementById("activity")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function setCoordinates() {
+function setCoordinates(label = "Custom coordinates") {
   const latitude = Number(latitudeInput.value);
   const longitude = Number(longitudeInput.value);
   try {
     buildSourceUrls(latitude, longitude, dateInput.value);
+    ($("location") as HTMLInputElement).value = label;
     $("coords-label").textContent = `${latitude.toFixed(4)}° ${latitude >= 0 ? "N" : "S"}, ${Math.abs(longitude).toFixed(4)}° ${longitude >= 0 ? "E" : "W"}`;
     $("coord-inputs").classList.add("hidden");
   } catch (error) { showToast(error instanceof Error ? error.message : "Invalid coordinates.", "error"); }
@@ -224,8 +225,7 @@ async function useBrowserLocation() {
   navigator.geolocation.getCurrentPosition((position) => {
     latitudeInput.value = position.coords.latitude.toFixed(4);
     longitudeInput.value = position.coords.longitude.toFixed(4);
-    ($("location") as HTMLInputElement).value = "Selected location";
-    setCoordinates();
+    setCoordinates("Browser location");
   }, () => showToast("Location permission was not granted. You can enter coordinates instead.", "error"), { enableHighAccuracy: false, timeout: 8000 });
 }
 
@@ -266,7 +266,7 @@ activityRows.addEventListener("click", async (event) => {
 });
 $("locate-me").addEventListener("click", useBrowserLocation);
 $("edit-coords").addEventListener("click", (event) => { event.preventDefault(); $("coord-inputs").classList.toggle("hidden"); });
-$("save-coords").addEventListener("click", setCoordinates);
+$("save-coords").addEventListener("click", () => setCoordinates("Custom coordinates"));
 $("menu-toggle").addEventListener("click", () => document.querySelector(".main-nav")?.classList.toggle("nav-open"));
 dateInput.addEventListener("change", () => { try { buildSourceUrls(Number(latitudeInput.value), Number(longitudeInput.value), dateInput.value); } catch { /* Native date validation is shown on submit. */ } });
 
