@@ -1,0 +1,35 @@
+# RainCheck Protocol
+
+RainCheck is a Studionet prototype for weather-triggered micro-cover. A user agrees to a location, UTC day and rainfall threshold before the event. After the day ends, the Intelligent Contract reads compact daily-rainfall evidence from Open-Meteo Archive and NASA POWER. GenLayer validators independently re-check those public values; the contract applies the fixed threshold and either approves a capped payout, rejects the trigger, pauses on a source conflict, or permits a premium refund.
+
+## What is implemented
+
+- Responsive product interface with an explicit sample walkthrough and no fabricated on-chain results.
+- GenLayer Intelligent Contract with a liquidity reserve, fixed 0.002 GEN test premium, fixed 0.010 GEN maximum payout, date and coordinate bounds, evidence comparison, payout, and conflict refund.
+- TypeScript browser client using the official `genlayer-js` SDK. Wallet actions remain locked until a contract address is configured.
+- Unit coverage for decision boundaries, missing sources, source conflicts, reserve accounting, refunds and one-time payouts.
+
+## Run locally
+
+```bash
+npm install
+npm test
+npm run build
+python -m pip install -r requirements-dev.txt
+python tests/run_direct_vm.py
+genvm-lint check contracts/rain_check.py
+```
+
+The site starts in preview mode while `VITE_CONTRACT_ADDRESS` is blank. Copy `.env.example` to `.env.local` only after the contract is reviewed and deployed to Studionet. The connected wallet must use Studionet and test GEN only.
+
+## Contract
+
+`contracts/rain_check.py` contains the Intelligent Contract. Its source URLs and settlement rule are fixed in code. Open-Meteo is the primary payout trigger and NASA POWER is a corroborating source. If both sources disagree on whether the threshold was met, payout stops and the cover owner can reclaim the premium. If data is unavailable, the claim can be retried. If both sources agree that the threshold was not met, the reserved payout is released to the pool.
+
+The exact premium and payout are deliberately small testnet amounts. This prototype is not an insurance product and has no mainnet value. Do not send mainnet assets.
+
+## Test limits
+
+Python unit tests use a small GenLayer API shim and controlled HTTP responses to exercise accounting and settlement branches. The Direct Mode test loads the contract with GenLayer storage types and controlled web responses; its compatibility runner bridges the older `py-genlayer` contract pin to the current `genlayer-test` API. It verifies cover creation, both evidence endpoints, matching and different validator results, approval, no trigger, source conflict, premium refund, payout state, and retry after missing data. `genvm-lint check` runs VM safety and SDK semantic validation. The Direct Mode compatibility runner evaluates the validator callback locally; it does not replace live multi-validator consensus or an on-chain transfer test.
+
+The contract has not been deployed and the frontend is not connected to a live contract. Until a reviewed Studionet contract address is set as `VITE_CONTRACT_ADDRESS`, the site stays in preview mode and wallet writes remain disabled. Use test GEN only.
