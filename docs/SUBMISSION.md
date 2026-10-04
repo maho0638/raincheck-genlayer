@@ -15,14 +15,13 @@ RainCheck lets a user define rainfall-cover terms before an event, then uses Gen
 
 The Intelligent Contract stores fixed cover terms and reserve accounting. Settlement retrieves compact JSON evidence from two independent public endpoints inside the contract's nondeterministic evidence path. Validator agreement on the structured result is required before the deterministic state transition pays or releases reserve. Disagreement pauses for review; unavailable evidence remains retryable. RainCheck V2 adds deployer-only liquidity management: `fund_reserve` accepts deposits from the owner, while `withdraw_reserve` enforces `amount <= total_reserve - locked_payouts`. The frontend uses `genlayer-js`, checks the contract version and owner on Studionet, and refuses writes for any legacy address.
 
-## Release state and final Studionet steps
+## Release state
 
-The public address below is the legacy prototype; it remains read-only and must not receive deposits:
+- Production site: https://raincheck-genlayer.vercel.app
+- Deployed V2 contract: `0xE25Cb5C035C7E0ae04C5Aa88aB673875bd5F20Ce`
+- Legacy contract (read-only; do not fund): `0xb94D1922362B0Ac6936e908DF677aC89D05dFC51`
+- Live browser check confirmed `raincheck-v2`, a valid owner, zero covers and 0 GEN available reserve. The Evidence Lab fetched both public sources successfully for its selected sample date and sent no transaction.
 
-`0xb94D1922362B0Ac6936e908DF677aC89D05dFC51`
+The deployed contract and production UI are connected. The live pool is empty, so creating a cover is currently disabled. To run the funded demo, the contract owner must connect the deployer wallet and add Studionet test GEN; the page defaults to 0.050 GEN funding. A new cover requires at least 0.008 GEN available reserve after existing locks. Only use Studionet test GEN. Do not use a mainnet wallet or real funds. The contract prevents withdrawals of reserve backing active covers.
 
-The V2 contract source and guarded UI are prepared and locally verified. To enable the complete on-chain demo, deploy `contracts/rain_check.py` from GenLayer Studio to Studionet using the wallet intended to own the reserve. Copy the resulting contract address into the Vercel Production `VITE_CONTRACT_ADDRESS` setting, redeploy once, then open the page and confirm the header says `RainCheck V2` and the reserve panel says `V2 · OWNER WALLET` after connecting the same deployer wallet. Fund only with Studionet test GEN. Do not use a mainnet wallet or real funds. Cover creation requires at least 0.008 GEN available reserve; the example owner funding value is 0.050 GEN. The contract will never allow withdrawing reserve backing active covers.
-
-Until those two account-scoped steps are completed, the published page continues to use the legacy read-only deployment. The Evidence Lab, source links and illustrative walkthrough work without wallet access. The browser Evidence Lab is not an on-chain proof, and local Direct Mode tests do not replace a live multi-validator settlement or payout.
-
-The Evidence Lab fetches public archive APIs at runtime. Its result is a browser-side comparison, not an on-chain proof. API outage, source differences and spatial resolution can affect readings. Contract tests use controlled responses; Direct Mode runs the contract's evidence/consensus lifecycle against controlled responses and do not replace a live payout transaction.
+The Evidence Lab is a browser-side comparison, not an on-chain proof. API outage, source differences and spatial resolution can affect readings. Contract unit tests use controlled responses; Direct Mode exercises the contract evidence/consensus lifecycle against controlled responses. No funded on-chain cover creation, settlement or payout has been exercised on the deployed contract yet.

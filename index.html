@@ -53,7 +53,7 @@
           <article><span class="metric-label">AVAILABLE COVER RESERVE <b class="hint" title="Read-only Studionet reserve">ⓘ</b></span><strong id="pool-stat">0.00 <small>GEN</small></strong><span class="metric-note"><i class="metric-dot green"></i> Existing contract reserve · read-only</span></article>
           <article><span class="metric-label">TOTAL COVERS</span><strong id="covers-stat">0</strong><span class="metric-note"><i class="metric-dot blue"></i> Records on this contract</span></article>
           <article><span class="metric-label">WEATHER EVIDENCE</span><strong>2 <small>sources</small></strong><span class="metric-note"><i class="metric-dot amber"></i> Open-Meteo + NASA POWER</span></article>
-          <article class="metric-note-card"><span class="metric-icon">✳</span><span><b>Built for uncertainty.</b><small>If sources disagree or fail, the contract pauses the claim for review.</small></span></article>
+          <article class="metric-note-card"><span class="metric-icon">✳</span><span><b>Built for uncertainty.</b><small>If sources disagree on the trigger or evidence is missing, the contract pauses the claim for review.</small></span></article>
         </section>
 
         <section class="workspace wrap" id="cover">
@@ -79,14 +79,14 @@
 
             <aside class="panel evidence-panel" id="proof">
               <div class="evidence-head"><div><span class="section-kicker">02 / EVIDENCE RULE</span><h3>What counts as rain?</h3></div><span class="source-badge">VERIFIABLE</span></div>
-              <p class="evidence-intro">The contract reads daily rainfall independently from two public weather services. Open-Meteo is the primary trigger and NASA POWER corroborates it; a disagreement pauses settlement for review.</p>
+              <p class="evidence-intro">The contract reads daily rainfall independently from two public weather services. Open-Meteo is the primary trigger and NASA POWER corroborates it; if they disagree on whether the threshold was met, settlement pauses for review.</p>
               <div class="source-list">
                 <div class="source-row"><span class="source-logo open-logo">O</span><span class="source-name"><b><a href="https://open-meteo.com/en/docs/historical-weather-api" target="_blank" rel="noreferrer">Open-Meteo Archive ↗</a></b><small>Primary trigger · daily precipitation</small></span><span class="source-value"><b>— <small>mm</small></b><i>Live values in Evidence Lab</i></span></div>
                 <div class="source-row"><span class="source-logo nasa-logo">N</span><span class="source-name"><b><a href="https://power.larc.nasa.gov/" target="_blank" rel="noreferrer">NASA POWER ↗</a></b><small>Independent comparison · daily rainfall</small></span><span class="source-value"><b>— <small>mm</small></b><i>Live values in Evidence Lab</i></span></div>
               </div>
               <div class="evidence-chart"><div class="chart-caption"><span>RULE ILLUSTRATION · NOT A MEASUREMENT</span><span><i class="legend-rain"></i> Rainfall <i class="legend-trigger"></i> Trigger</span></div><svg viewBox="0 0 520 112" role="img" aria-label="Illustrative rainfall curve and threshold line, not observed data"><defs><linearGradient id="rainfill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#4d9c74" stop-opacity=".28"/><stop offset="1" stop-color="#4d9c74" stop-opacity="0"/></linearGradient></defs><path d="M0 84 C40 80 53 62 90 69 S140 88 176 57 S222 46 260 59 S320 75 350 37 S403 51 438 26 S490 38 520 18 V112 H0Z" fill="url(#rainfill)"/><path d="M0 84 C40 80 53 62 90 69 S140 88 176 57 S222 46 260 59 S320 75 350 37 S403 51 438 26 S490 38 520 18" fill="none" stroke="#347b58" stroke-width="3" stroke-linecap="round"/><path d="M0 63 H520" stroke="#d18d36" stroke-width="1.5" stroke-dasharray="5 6"/><text x="470" y="57" fill="#a56e27" font-size="10">30 mm</text></svg><div class="chart-days"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00 UTC</span></div></div>
               <div class="evidence-rule"><span class="rule-check">✓</span><p><b>Decision rule</b><br />Payout is approved only when <strong>both sources</strong> report at least <strong id="rule-threshold">30 mm</strong> for the covered day. A one-sided threshold crossing or missing data pauses settlement.</p></div>
-              <div class="evidence-disclaimer"><span>ⓘ</span> Values above are illustrative. If sources disagree, the contract pauses payout and lets the cover owner reclaim the premium.</div>
+              <div class="evidence-disclaimer"><span>ⓘ</span> Values above are illustrative. If sources disagree on whether the threshold was met, the contract pauses payout and lets the cover owner reclaim the premium.</div>
             </aside>
           </div>
         </section>
@@ -101,7 +101,7 @@
               <label>Trigger<input id="lab-threshold" type="number" min="5" max="100" step="5" value="30" required /></label>
               <button class="button primary" id="run-evidence" type="submit">Fetch both sources <span>↗</span></button>
             </form>
-            <p class="lab-note">The sources use different observation products and spatial resolution. A disagreement is shown as review; it is not silently averaged.</p>
+            <p class="lab-note">The sources use different observation products and spatial resolution. If they disagree on whether the selected threshold was met, the preview shows SOURCE REVIEW; readings are not silently averaged.</p>
             <div class="lab-status" id="lab-status" role="status" aria-live="polite">Select an archived date, then fetch the public readings.</div>
             <div class="lab-result hidden" id="lab-result">
               <div class="lab-decision"><span>LOCAL PREVIEW RESULT</span><strong id="lab-decision-value">—</strong><small id="lab-retrieved"></small></div>
