@@ -4,6 +4,8 @@ import { ExecutionResult, TransactionStatus, type CalldataEncodable } from "genl
 import { buildSourceUrls, decideRainfall, formatRain } from "./weather";
 import { fetchRainEvidence } from "./evidence";
 import { createAuditBundle, downloadAuditBundle, type AuditSnapshot } from "./audit";
+import { fetchDayForecast, forecastGuidance, type DayForecast } from "./forecast";
+import { searchPlaces, type Place } from "./places";
 import "./style.css";
 
 declare global { interface Window { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } } }
@@ -32,11 +34,18 @@ let demoAdded = false;
 let availableReserve: bigint | null = null;
 let verifiedV2 = false;
 let contractOwner = "";
+let refreshInProgress = false;
+let lastSuccessfulRefresh = "";
+let contractReadState: "checking" | "live" | "stale" | "unavailable" = "checking";
 const MIN_AVAILABLE_FOR_COVER = 8_000_000_000_000_000n;
 
 type Activity = { title: string; location: string; date: string; threshold: number; status: string; payout: string; sample?: boolean; coverId?: number; audit?: AuditSnapshot };
 const activities: Activity[] = [];
 let latestLabEvidence: Awaited<ReturnType<typeof fetchRainEvidence>> | null = null;
+let latestForecast: DayForecast | null = null;
+let latestForecastLocation = "";
+let forecastInProgress = false;
+let resolvedLocationLabel = "Istanbul, Türkiye";
 
 function showToast(message: string, kind: "success" | "error" | "info" = "info") {
   toast.textContent = message;
@@ -59,11 +68,147 @@ function setDateLimits() {
 function updateThreshold() {
   $("threshold-label").textContent = thresholdInput.value;
   $("rule-threshold").textContent = `${thresholdInput.value} mm`;
+  syncPlannerInputs();
+}
+
+function syncPlannerInputs(invalidate = true) {
+  const latitude = Number(latitudeInput.value);
+  const longitude = Number(longitudeInput.value);
+  const isLocationResolved = formatLocation() === resolvedLocationLabel;
+  $("planner-location").textContent = formatLocation();
+  $("planner-coordinates").textContent = !isLocationResolved
+    ? "Find and select a place, or edit its coordinates"
+    : Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? `${latitude.toFixed(4)}° ${latitude >= 0 ? "N" : "S"}, ${Math.abs(longitude).toFixed(4)}° ${longitude >= 0 ? "E" : "W"}`
+    : "Coordinates need attention";
+  ($("run-forecast") as HTMLButtonElement).disabled = !isLocationResolved || forecastInProgress;
+  const date = dateInput.value;
+  const parsed = date ? new Date(`${date}T00:00:00.000Z`) : null;
+  $("planner-date").textContent = parsed && !Number.isNaN(parsed.getTime())
+    ? parsed.toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })
+    : "Choose an event day";
+  $("planner-threshold").textContent = `${thresholdInput.value} mm`;
+  if (invalidate && latestForecast && (latestForecast.eventDate !== date || latestForecast.latitude !== latitude || latestForecast.longitude !== longitude || latestForecast.thresholdMm !== Number(thresholdInput.value) || latestForecastLocation !== formatLocation())) {
+    latestForecast = null;
+    latestForecastLocation = "";
+    $("forecast-result").classList.add("hidden");
+    $("forecast-status").textContent = "Your event details changed. Check the outlook again to refresh the decision brief.";
+  }
+}
+
+function renderForecast(forecast: DayForecast) {
+  const guide = forecastGuidance(forecast.thresholdLoadPercent);
+  $("forecast-total").textContent = formatRain(forecast.expectedRainMm);
+  $("forecast-source-meta").textContent = `${new Date(forecast.retrievedAt).toLocaleString()} · ${forecast.hours.length} hourly readings · UTC`;
+  $("forecast-load-label").textContent = `${forecast.thresholdLoadPercent.toFixed(0)}%`;
+  $("forecast-load-bar").style.width = `${Math.min(100, forecast.thresholdLoadPercent)}%`;
+  $("forecast-load-note").textContent = forecast.thresholdLoadPercent >= 100
+    ? `At or above the ${forecast.thresholdMm} mm trigger in the forecast.`
+    : `Below the ${forecast.thresholdMm} mm trigger in the forecast.`;
+  $("forecast-action").dataset.band = guide.band;
+  $("forecast-action-title").textContent = guide.title;
+  $("forecast-action-copy").textContent = guide.action;
+  $("forecast-peak").textContent = forecast.peakHour
+    ? `${forecast.peakHour.time.slice(11, 16)} · ${formatRain(forecast.peakHour.precipitationMm)}`
+    : "No hourly peak available";
+  $("forecast-probability").textContent = forecast.maxProbabilityPercent === null
+    ? "Hourly rain chance unavailable"
+    : `Highest hourly precipitation chance: ${forecast.maxProbabilityPercent}%`;
+  const grid = $("hourly-grid");
+  grid.replaceChildren();
+  for (const hour of forecast.hours) {
+    const card = document.createElement("article");
+    card.className = `hourly-card${hour.precipitationMm > 0 ? " wet" : ""}`;
+    const time = document.createElement("span"); time.textContent = hour.time.slice(11, 16);
+    const amount = document.createElement("b"); amount.textContent = formatRain(hour.precipitationMm);
+    const probability = document.createElement("small"); probability.textContent = hour.precipitationProbability === null ? "chance n/a" : `${hour.precipitationProbability}% chance`;
+    card.append(time, amount, probability);
+    grid.append(card);
+  }
+  const dateOptions = $("date-options");
+  dateOptions.replaceChildren();
+  if (!forecast.alternatives.length) {
+    const noOptions = document.createElement("small");
+    noOptions.className = "no-date-options";
+    noOptions.textContent = "No later forecast dates are available in this window.";
+    dateOptions.append(noOptions);
+  }
+  for (const option of forecast.alternatives) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "date-option";
+    button.dataset.date = option.eventDate;
+    const date = document.createElement("b");
+    date.textContent = new Date(`${option.eventDate}T00:00:00Z`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+    const rain = document.createElement("span"); rain.textContent = formatRain(option.expectedRainMm);
+    const load = document.createElement("small"); load.textContent = `${option.thresholdLoadPercent.toFixed(0)}% of trigger`;
+    const action = document.createElement("i"); action.textContent = "Use this date";
+    button.append(date, rain, load, action);
+    dateOptions.append(button);
+  }
+  $("forecast-result").classList.remove("hidden");
+}
+
+async function checkForecast() {
+  if (forecastInProgress) return;
+  const button = $("run-forecast") as HTMLButtonElement;
+  const status = $("forecast-status");
+  forecastInProgress = true;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = "Loading forecast…";
+  latestForecast = null;
+  latestForecastLocation = "";
+  $("forecast-result").classList.add("hidden");
+  status.textContent = "Requesting the latest hourly forecast for your event day…";
+  try {
+    if (formatLocation() !== resolvedLocationLabel) throw new Error("Resolve the event place before checking its forecast.");
+    const request = { latitude: Number(latitudeInput.value), longitude: Number(longitudeInput.value), eventDate: dateInput.value, thresholdMm: Number(thresholdInput.value), location: formatLocation() };
+    const forecast = await fetchDayForecast(request.latitude, request.longitude, request.eventDate, request.thresholdMm);
+    if (request.latitude !== Number(latitudeInput.value) || request.longitude !== Number(longitudeInput.value) || request.eventDate !== dateInput.value || request.thresholdMm !== Number(thresholdInput.value) || request.location !== formatLocation()) {
+      status.textContent = "Event details changed while loading. Check the outlook again for the updated place, day and trigger.";
+      return;
+    }
+    latestForecast = forecast;
+    latestForecastLocation = request.location;
+    renderForecast(forecast);
+    status.textContent = "Forecast ready. This is planning information only; it is not a chain verdict or payout.";
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : "Could not retrieve the event forecast.";
+  } finally {
+    forecastInProgress = false;
+    button.disabled = formatLocation() !== resolvedLocationLabel;
+    button.removeAttribute("aria-busy");
+    button.textContent = "Check event outlook";
+  }
+}
+
+function downloadForecastBrief() {
+  if (!latestForecast) return;
+  const guidance = forecastGuidance(latestForecast.thresholdLoadPercent);
+  const brief = {
+    product: "RainCheck event weather brief",
+    boundary: "Forecast only. Not a GenLayer validator verdict, on-chain evidence, insurance advice, or promised payout.",
+    event: { location: latestForecastLocation, latitude: latestForecast.latitude, longitude: latestForecast.longitude, dateUtc: latestForecast.eventDate, rainfallTriggerMm: latestForecast.thresholdMm },
+    outlook: { expectedRainMm: latestForecast.expectedRainMm, triggerLoadPercent: latestForecast.thresholdLoadPercent, highestHourlyPrecipitationChancePercent: latestForecast.maxProbabilityPercent, wettestHourUtc: latestForecast.peakHour?.time ?? null, guidance },
+    hourly: latestForecast.hours,
+    lowerRainDateOptions: latestForecast.alternatives,
+    retrievedAt: latestForecast.retrievedAt,
+    source: { name: "Open-Meteo", url: latestForecast.sourceUrl, attribution: "Weather data from Open-Meteo, based on national weather service models." },
+  };
+  const blob = new Blob([JSON.stringify(brief, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `raincheck-event-brief-${latestForecast.eventDate}.json`;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function renderActivity() {
   activityRows.replaceChildren();
   emptyActivity.classList.toggle("hidden", activities.length > 0);
+  const latestCoverId = Math.max(0, ...activities.filter((item) => !item.sample && item.coverId !== undefined).map((item) => item.coverId!));
   for (const item of [...activities].reverse()) {
     const row = document.createElement("div");
     row.className = "activity-row";
@@ -77,10 +222,50 @@ function renderActivity() {
       else if (item.status === "APPROVED") action = `<button class="row-action" data-action="claim" data-id="${item.coverId}">Claim payout</button>`;
       else if (item.status === "SOURCE_REVIEW") action = `<button class="row-action" data-action="retry" data-id="${item.coverId}">Re-check</button><button class="row-action secondary" data-action="refund" data-id="${item.coverId}">Refund premium</button>`;
     }
-    const auditDetails = item.audit ? `<details class="activity-audit"><summary>Evidence and decision details</summary><div class="audit-detail-grid"><span>Open-Meteo</span><b>${escapeHtml(auditValue(item.audit, "openMeteoMm"))}</b><span>NASA POWER</span><b>${escapeHtml(auditValue(item.audit, "nasaPowerMm"))}</b><span>Decision</span><b>${escapeHtml(auditDecision(item.audit))}</b></div><p>${escapeHtml(auditReason(item.status, item.threshold, item.audit))}</p><button class="audit-export" type="button" data-evidence-export="${item.coverId}">Download SHA-256 evidence JSON</button><small class="audit-export-status" id="audit-export-status-${item.coverId}" role="status"></small></details>` : "";
-    row.innerHTML = `<span class="activity-place"><i>◉</i><span><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.location)}${item.sample ? " · illustrative" : ""}</small></span></span><span>${escapeHtml(item.date)}</span><span>≥ ${item.threshold} mm</span><span><i class="status-pill ${badge}">${escapeHtml(item.status === "SAMPLE" ? "Sample proof" : item.status.replaceAll("_", " "))}</i></span><span>${escapeHtml(item.payout)}${action ? `<span class="row-actions">${action}</span>` : ""}</span>${auditDetails}`;
+    const auditDetails = item.audit ? `<details class="activity-audit" ${item.coverId === latestCoverId ? "open" : ""}><summary>Open the on-chain case file · evidence, rule and settlement path</summary><div class="case-file"><div class="case-status"><span>CONTRACT OUTCOME</span><b>${escapeHtml(auditDecision(item.audit))}</b></div><div class="case-sources"><a href="${escapeHtml(String((item.audit.sources as Record<string, unknown>)?.openMeteoUrl ?? "https://archive-api.open-meteo.com/"))}" target="_blank" rel="noreferrer"><span>Open-Meteo Archive <i>↗</i></span><b>${escapeHtml(auditValue(item.audit, "openMeteoMm"))}</b><small>contract-stored reading · independent source link</small></a><a href="${escapeHtml(String((item.audit.sources as Record<string, unknown>)?.nasaPowerUrl ?? "https://power.larc.nasa.gov/"))}" target="_blank" rel="noreferrer"><span>NASA POWER <i>↗</i></span><b>${escapeHtml(auditValue(item.audit, "nasaPowerMm"))}</b><small>contract-stored reading · independent source link</small></a></div><div class="case-rule"><b>Locked rule</b><span>Both sources must be ≥ ${item.threshold} mm to approve payout. Readings are saved in 0.1 mm units.</span></div>${renderCaseLifecycle(item.status)}<p>${escapeHtml(auditReason(item.status, item.threshold, item.audit))}</p><small>On-chain contract: ${escapeHtml(CONTRACT_ADDRESS)} · cover #${item.coverId}. Source links open the providers; this export is not a validator signature.</small></div><button class="audit-export" type="button" data-evidence-export="${item.coverId}">Download SHA-256 case file</button><small class="audit-export-status" id="audit-export-status-${item.coverId}" role="status"></small></details>` : "";
+    row.innerHTML = `<span class="activity-place"><i>◉</i><span><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.location)}${item.sample ? " · illustrative" : ""}</small></span></span><span>${escapeHtml(item.date)}</span><span>≥ ${item.threshold} mm</span><span><i class="status-pill ${badge}">${escapeHtml(statusLabel(item.status))}</i></span><span>${escapeHtml(item.payout)}${action ? `<span class="row-actions">${action}</span>` : ""}</span>${auditDetails}`;
     activityRows.append(row);
   }
+  updateHeroMonitor();
+}
+
+function updateHeroMonitor() {
+  const stateLabels = { checking: "Connecting to Studionet", live: "RainCheck V2 · verified", stale: "Read failed · values may be stale", unavailable: "Contract state unavailable" };
+  $("hero-live-status").textContent = stateLabels[contractReadState];
+  const latest = [...activities].reverse().find((item) => !item.sample && item.coverId !== undefined);
+  if (!latest) {
+    $("hero-case-title").textContent = contractReadState === "live" ? "No on-chain covers yet" : "Waiting for contract read";
+    $("hero-case-detail").textContent = contractReadState === "live"
+      ? `Contract verified · ${availableReserve === null ? "reserve unavailable" : `${(Number(availableReserve) / 1e18).toFixed(3)} GEN free reserve`}.`
+      : "Cover count and reserve appear after the public Studionet read succeeds.";
+    $("hero-open-reading").textContent = "Not checked";
+    $("hero-nasa-reading").textContent = "Not checked";
+    $("hero-evidence-stage").querySelector("small")!.textContent = "no cover to resolve";
+    $("hero-settlement-stage").querySelector("small")!.textContent = "reserve remains available";
+    return;
+  }
+  const sources = latest.audit?.sources as Record<string, unknown> | undefined;
+  $("hero-case-title").textContent = `Cover #${latest.coverId} · ${statusLabel(latest.status)}`;
+  $("hero-case-detail").textContent = `${latest.date} UTC · ${latest.location} · trigger ≥ ${latest.threshold} mm`;
+  $("hero-open-reading").textContent = auditValue(latest.audit!, "openMeteoMm");
+  $("hero-nasa-reading").textContent = auditValue(latest.audit!, "nasaPowerMm");
+  $("hero-evidence-stage").querySelector("small")!.textContent = latest.status === "ACTIVE" ? "after event day" : latest.status === "DATA_UNAVAILABLE" ? "retry available" : "two readings stored";
+  $("hero-settlement-stage").querySelector("small")!.textContent = latest.status === "APPROVED" ? "payout can be claimed" : latest.status === "PAID" ? "payout transferred" : latest.status === "SOURCE_REVIEW" ? "premium refund available" : latest.status === "NO_TRIGGER" ? "locked payout released" : latest.status === "REFUNDED" ? "premium returned" : "payout remains locked";
+}
+
+function statusLabel(status: string) {
+  const labels: Record<string, string> = {
+    ACTIVE: "Awaiting event day", DATA_UNAVAILABLE: "Evidence unavailable · retry", SOURCE_REVIEW: "Sources conflict · review", APPROVED: "Approved · payout ready", PAID: "Paid", NO_TRIGGER: "Trigger not met", REFUNDED: "Premium refunded", SAMPLE: "Illustrative sample",
+  };
+  return labels[status] ?? status.replaceAll("_", " ");
+}
+
+function renderCaseLifecycle(status: string) {
+  const evidence = status === "ACTIVE" ? "Not checked yet" : status === "DATA_UNAVAILABLE" ? "Retryable · source data missing" : "Two source readings recorded";
+  const decision = status === "ACTIVE" ? "Waiting for UTC event day" : status === "DATA_UNAVAILABLE" ? "No rainfall outcome assigned" : status === "SOURCE_REVIEW" ? "Threshold conflict · review state" : status === "APPROVED" || status === "PAID" ? "Both sources met threshold" : status === "NO_TRIGGER" ? "Both sources below threshold" : "Final contract state";
+  const settlement = status === "APPROVED" ? "Cover owner can claim payout" : status === "PAID" ? "Payout transferred" : status === "SOURCE_REVIEW" ? "Cover owner can request premium refund" : status === "REFUNDED" ? "Premium returned" : status === "NO_TRIGGER" ? "Reserved payout released" : status === "DATA_UNAVAILABLE" ? "Retry evidence check" : "No settlement yet";
+  const completed = status !== "ACTIVE";
+  return `<ol class="case-lifecycle"><li class="done"><b>Terms locked</b><small>UTC day · location · trigger</small></li><li class="${completed ? "done" : "current"}"><b>Evidence</b><small>${escapeHtml(evidence)}</small></li><li class="${completed ? "done" : "current"}"><b>Contract result</b><small>${escapeHtml(decision)}</small></li><li class="${["PAID", "REFUNDED", "NO_TRIGGER"].includes(status) ? "done" : "current"}"><b>Settlement</b><small>${escapeHtml(settlement)}</small></li></ol>`;
 }
 
 function auditValue(snapshot: AuditSnapshot, key: "openMeteoMm" | "nasaPowerMm") {
@@ -206,10 +391,26 @@ async function sendContractWrite(functionName: string, args: unknown[] = [], val
   return hash;
 }
 
-async function refreshPool() {
+async function refreshPool(manual = false) {
+  if (refreshInProgress) return;
+  refreshInProgress = true;
+  const button = $("refresh-activity") as HTMLButtonElement;
+  const refreshStatus = $("refresh-status");
+  const buttonLabel = button.querySelector("span");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  buttonLabel!.textContent = "…";
+  contractReadState = "checking";
+  updateHeroMonitor();
+  refreshStatus.textContent = "Reading the reserve and cover records from Studionet…";
   if (!readClient || !CONTRACT_ADDRESS) {
-    availableReserve = null;
-    updateCoverAvailability();
+    contractReadState = "unavailable";
+    updateHeroMonitor();
+    refreshStatus.textContent = "Contract connection is not initialized yet.";
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    buttonLabel!.textContent = "↻";
+    refreshInProgress = false;
     return;
   }
   try {
@@ -244,12 +445,16 @@ async function refreshPool() {
       ? verifiedV2 ? "V2 reserve can cover one test payout" : "Legacy reserve · writes are read-only"
       : verifiedV2 ? "V2 reserve below minimum for a new cover" : "Legacy contract · writes are read-only";
     const numericCount = Number(count);
-    const onchainRows = await Promise.all(Array.from({ length: Math.min(numericCount, 40) }, (_, index) =>
+    const coverReadLimit = Math.min(numericCount, 40);
+    const coverResults = await Promise.allSettled(Array.from({ length: coverReadLimit }, (_, index) =>
       readClient!.readContract({ address: CONTRACT_ADDRESS as `0x${string}`, functionName: "get_cover", args: [BigInt(index + 1)] })
     ));
+    const failedCoverReads = coverResults.filter((result) => result.status === "rejected").length;
     for (let i = activities.length - 1; i >= 0; i--) if (!activities[i].sample) activities.splice(i, 1);
-    for (let i = 0; i < onchainRows.length; i++) {
-      const entry = onchainRows[i] as Record<string, unknown>;
+    for (let i = 0; i < coverResults.length; i++) {
+      const result = coverResults[i];
+      if (result.status === "rejected") continue;
+      const entry = result.value as Record<string, unknown>;
       if (entry.found === false) continue;
       const lat = Number(entry.latitude_e4) / 10000;
       const lon = Number(entry.longitude_e4) / 10000;
@@ -279,13 +484,31 @@ async function refreshPool() {
         },
       });
     }
+    contractReadState = "live";
     renderActivity();
+    lastSuccessfulRefresh = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    refreshStatus.textContent = failedCoverReads
+      ? `Updated ${lastSuccessfulRefresh} · ${failedCoverReads} cover record${failedCoverReads === 1 ? "" : "s"} could not be read.`
+      : `Updated ${lastSuccessfulRefresh} · reserve and ${coverReadLimit}${numericCount > coverReadLimit ? ` of ${numericCount}` : ""} cover record${numericCount === 1 ? "" : "s"} read on-chain.`;
+    if (manual) showToast(failedCoverReads ? "Reserve refreshed; some cover records could not be read." : "Contract state refreshed from Studionet.", failedCoverReads ? "info" : "success");
   } catch (error) {
-    availableReserve = null;
+    // Keep the last known values visible, but disable writes until the next successful verification.
+    verifiedV2 = false;
+    contractReadState = lastSuccessfulRefresh ? "stale" : "unavailable";
     updateCoverAvailability();
-    $("reserve-status").textContent = "Contract read unavailable";
     updateAdminControls();
-    showToast(error instanceof Error ? `Couldn't refresh contract state: ${error.message}` : "Couldn't refresh contract state.", "error");
+    updateHeroMonitor();
+    const detail = error instanceof Error ? error.message : "Unknown RPC error";
+    refreshStatus.textContent = lastSuccessfulRefresh
+      ? `Refresh failed · showing last successful read from ${lastSuccessfulRefresh}. ${detail}`
+      : `Could not read the contract. ${detail}`;
+    $("reserve-status").textContent = "Read failed · displayed values may be stale";
+    if (manual) showToast(`Couldn't refresh contract state: ${detail}`, "error");
+  } finally {
+    refreshInProgress = false;
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    buttonLabel!.textContent = "↻";
   }
 }
 
@@ -321,6 +544,7 @@ async function activateCover(event: SubmitEvent) {
   const threshold = Number(thresholdInput.value);
   const date = dateInput.value;
   try {
+    if (formatLocation() !== resolvedLocationLabel) throw new Error("Search for the event city and choose a result, or edit the coordinates, before creating a cover.");
     if (!verifiedV2) throw new Error("This contract is read-only. Deploy and configure RainCheck V2 before creating covers.");
     buildSourceUrls(latitude, longitude, date);
     if (availableReserve === null || availableReserve < MIN_AVAILABLE_FOR_COVER) {
@@ -474,9 +698,56 @@ function setCoordinates(label = "Custom coordinates") {
   try {
     buildSourceUrls(latitude, longitude, dateInput.value);
     ($("location") as HTMLInputElement).value = label;
+    resolvedLocationLabel = label;
     $("coords-label").textContent = `${latitude.toFixed(4)}° ${latitude >= 0 ? "N" : "S"}, ${Math.abs(longitude).toFixed(4)}° ${longitude >= 0 ? "E" : "W"}`;
     $("coord-inputs").classList.add("hidden");
+    syncPlannerInputs();
   } catch (error) { showToast(error instanceof Error ? error.message : "Invalid coordinates.", "error"); }
+}
+
+function placeLabel(place: Place) {
+  return [place.name, place.admin1, place.country].filter(Boolean).filter((part, index, all) => all.indexOf(part) === index).join(", ");
+}
+
+async function findPlaces() {
+  const button = $("search-location") as HTMLButtonElement;
+  const results = $("location-results");
+  const query = ($("location") as HTMLInputElement).value;
+  button.disabled = true;
+  button.textContent = "Searching…";
+  results.replaceChildren();
+  try {
+    const places = await searchPlaces(query);
+    if (!places.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "No matching places. Try a nearby city or edit coordinates.";
+      results.append(empty);
+    }
+    for (const place of places) {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.className = "place-option";
+      option.setAttribute("role", "option");
+      option.textContent = placeLabel(place);
+      option.addEventListener("click", () => {
+        latitudeInput.value = place.latitude.toFixed(4);
+        longitudeInput.value = place.longitude.toFixed(4);
+        ($("location") as HTMLInputElement).value = placeLabel(place);
+        resolvedLocationLabel = placeLabel(place);
+        $("coords-label").textContent = `${place.latitude.toFixed(4)}° ${place.latitude >= 0 ? "N" : "S"}, ${Math.abs(place.longitude).toFixed(4)}° ${place.longitude >= 0 ? "E" : "W"}`;
+        results.replaceChildren();
+        results.classList.add("hidden");
+        syncPlannerInputs();
+      });
+      results.append(option);
+    }
+    results.classList.remove("hidden");
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "Place search failed.", "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Find place";
+  }
 }
 
 async function useBrowserLocation() {
@@ -506,7 +777,18 @@ $("close-demo").addEventListener("click", () => demoDialog.close());
 $("show-sample").addEventListener("click", showSampleInActivity);
 $("fund-pool").addEventListener("click", fundPool);
 $("withdraw-reserve").addEventListener("click", withdrawPool);
-$("refresh-activity").addEventListener("click", refreshPool);
+$("refresh-activity").addEventListener("click", () => { void refreshPool(true); });
+$("run-forecast").addEventListener("click", () => { void checkForecast(); });
+$("export-forecast").addEventListener("click", downloadForecastBrief);
+$("search-location").addEventListener("click", () => { void findPlaces(); });
+$("location").addEventListener("input", () => syncPlannerInputs());
+$("date-options").addEventListener("click", (event) => {
+  const option = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-date]");
+  if (!option?.dataset.date) return;
+  dateInput.value = option.dataset.date;
+  dateInput.dispatchEvent(new Event("change", { bubbles: true }));
+  $("forecast-status").textContent = "Alternative date selected. Check the outlook again to refresh the event brief.";
+});
 activityRows.addEventListener("click", async (event) => {
   const target = event.target as HTMLElement;
   const exportButton = target.closest<HTMLButtonElement>("button[data-evidence-export]");
@@ -561,9 +843,10 @@ $("locate-me").addEventListener("click", useBrowserLocation);
 $("edit-coords").addEventListener("click", (event) => { event.preventDefault(); $("coord-inputs").classList.toggle("hidden"); });
 $("save-coords").addEventListener("click", () => setCoordinates("Custom coordinates"));
 $("menu-toggle").addEventListener("click", () => document.querySelector(".main-nav")?.classList.toggle("nav-open"));
-dateInput.addEventListener("change", () => { try { buildSourceUrls(Number(latitudeInput.value), Number(longitudeInput.value), dateInput.value); } catch { /* Native date validation is shown on submit. */ } });
+dateInput.addEventListener("change", () => { syncPlannerInputs(); try { buildSourceUrls(Number(latitudeInput.value), Number(longitudeInput.value), dateInput.value); } catch { /* Native date validation is shown on submit. */ } });
 
 setDateLimits();
+syncPlannerInputs(false);
 initializeEvidenceLab();
 updateThreshold();
 setMode();

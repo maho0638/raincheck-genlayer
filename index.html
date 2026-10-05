@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#e9f3ed" />
-    <meta name="description" content="Weather-triggered cover with public evidence and GenLayer validator consensus." />
-    <title>RainCheck — cover the rain, prove the trigger</title>
+    <meta name="description" content="Plan outdoor events with hourly rain forecasts, threshold comparisons, and inspectable GenLayer Studionet evidence." />
+    <title>RainCheck — event rain planner & public proof</title>
   </head>
   <body>
     <div class="site-shell">
@@ -16,6 +16,7 @@
         </a>
         <nav class="main-nav" aria-label="Main navigation">
           <a class="active" href="#cover">Protection</a>
+          <a href="#planner">Event planner</a>
           <a href="#proof">How it works</a>
           <a href="#evidence-lab">Evidence lab</a>
           <a href="#activity">Activity</a>
@@ -31,22 +32,35 @@
         <section class="hero wrap">
           <div class="hero-copy">
             <div class="eyebrow"><span class="eyebrow-dot"></span> WEATHER COVER, WITH A PUBLIC PROOF</div>
-            <h1>Rain happens.<br /><em>Your cover should be clear.</em></h1>
-            <p>Set a rainfall threshold before the day begins. When it ends, GenLayer validators check public weather evidence and the contract settles by the rule you chose.</p>
+            <h1>Make the rain call<br /><em>with evidence.</em></h1>
+            <p>Plan around the live forecast. Then see how a clear rainfall rule and public evidence can be checked by GenLayer on Studionet.</p>
             <div class="hero-actions">
-              <a class="button primary" href="#cover">Create a cover <span aria-hidden="true">↗</span></a>
+              <a class="button primary" href="#planner">Check event forecast <span aria-hidden="true">↗</span></a>
               <button class="button text-button" id="open-demo" type="button"><span class="play-icon">▶</span> Walk through a sample claim</button>
             </div>
             <div class="hero-proofline"><span class="avatar-stack"><i>R</i><i>G</i><i>◈</i></span><span>Public weather sources</span><b>·</b><span>Validator consensus</span><b>·</b><span>On-chain settlement</span></div>
           </div>
-          <div class="hero-art" aria-label="Illustrative rainfall example and a protected field; sample values only">
-            <div class="art-sun"></div><div class="art-cloud cloud-one"></div><div class="art-cloud cloud-two"></div>
-            <span class="rain rain-a"></span><span class="rain rain-b"></span><span class="rain rain-c"></span><span class="rain rain-d"></span>
-            <div class="hill hill-back"></div><div class="hill hill-front"></div>
-            <div class="art-card"><span class="art-card-top"><span>RAIN EXAMPLE</span><span class="live-chip"><i></i> ILLUSTRATIVE</span></span><strong>34.6 <small>mm</small></strong><span class="art-card-bottom"><span>Trigger · 30 mm</span><b>EXAMPLE</b></span><div class="art-line"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
-            <div class="source-float"><span class="source-check">✓</span><span><b>2 sample sources</b><small>Example only · no live verdict</small></span></div>
-            <span class="art-note">Illustrative rainfall example.<br />Use Evidence Lab for live archives.</span>
+          <div class="hero-art live-monitor" aria-label="Live RainCheck contract monitor on Studionet">
+            <div class="monitor-top"><div><span>RAINCheck · CONTRACT MONITOR</span><b id="hero-live-status">Connecting to Studionet</b></div><span class="monitor-network">STUDIONET</span></div>
+            <div class="monitor-case"><span>LATEST ON-CHAIN COVER</span><strong id="hero-case-title">Reading contract…</strong><p id="hero-case-detail">Checking verified RainCheck V2 state and cover records.</p></div>
+            <div class="monitor-source-grid"><article><span>OPEN-METEO</span><b id="hero-open-reading">Not checked</b><small>contract-stored reading</small></article><article><span>NASA POWER</span><b id="hero-nasa-reading">Not checked</b><small>contract-stored reading</small></article></div>
+            <ol class="monitor-lifecycle"><li class="done"><i>01</i><b>Terms</b><small>locked on-chain</small></li><li id="hero-evidence-stage"><i>02</i><b>Evidence</b><small>waiting for event day</small></li><li id="hero-settlement-stage"><i>03</i><b>Settlement</b><small>payout stays bounded</small></li></ol>
+            <a class="monitor-link" href="#activity">Inspect live cover records <span>↗</span></a>
           </div>
+        </section>
+
+        <section class="event-desk wrap" id="planner" aria-labelledby="planner-title">
+          <div class="desk-heading"><div><span class="section-kicker">YOUR WEATHER DECISION DESK</span><h2 id="planner-title">Plan around the rain.</h2><p>Get a UTC hourly outlook for the same location, date and rainfall trigger as your cover setup. Use it to make a practical event plan.</p></div><span class="desk-live-tag"><i></i> LIVE FORECAST</span></div>
+          <div class="desk-controls"><div class="desk-location"><span>EVENT LOCATION</span><b id="planner-location">Istanbul, Türkiye</b><small id="planner-coordinates">41.0082° N, 28.9784° E</small></div><div class="desk-selection"><span>EVENT DAY</span><b id="planner-date">—</b><small>UTC · follows cover setup</small></div><div class="desk-selection"><span>RAIN TRIGGER</span><b id="planner-threshold">30 mm</b><small>daily accumulation</small></div><button class="button primary desk-button" id="run-forecast" type="button">Check event outlook</button></div>
+          <div class="desk-result hidden" id="forecast-result">
+            <div class="forecast-summary"><div class="forecast-total"><span>FORECAST RAIN · SELECTED DAY</span><strong id="forecast-total">—</strong><small id="forecast-source-meta">—</small></div><div class="forecast-load"><div><span>RAIN LOAD VS YOUR TRIGGER</span><b id="forecast-load-label">—</b></div><div class="load-track"><i id="forecast-load-bar"></i></div><small id="forecast-load-note">—</small></div><div class="forecast-peak"><span>WETTEST HOUR</span><b id="forecast-peak">—</b><small id="forecast-probability">Rain chance unavailable</small></div></div>
+            <div class="forecast-action" id="forecast-action"><span class="action-mark">!</span><div><b id="forecast-action-title">—</b><p id="forecast-action-copy">—</p></div></div>
+            <div class="date-alternatives"><div><h3>Could you move the date?</h3><p>Lowest-rain future options in this forecast window, using the same trigger.</p></div><div class="date-options" id="date-options"></div></div>
+            <div class="hourly-heading"><div><h3>Hourly rainfall outlook</h3><p>Forecast model output · each value is hourly precipitation in UTC.</p></div><button class="audit-export" id="export-forecast" type="button">Download event brief</button></div>
+            <div class="hourly-grid" id="hourly-grid" aria-label="Hourly precipitation forecast"></div>
+            <p class="forecast-boundary">This is a forecast for event planning, not archived evidence, a GenLayer validator verdict, insurance advice or a promised payout. The 50% and 100% trigger-load bands are planning heuristics; hourly precipitation chance is shown separately. Forecasts change. Recheck close to the event. Powered by <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>; commercial use requires its commercial-use licence.</p>
+          </div>
+          <div class="desk-status" id="forecast-status" role="status" aria-live="polite">Set your event place, day and rainfall trigger in the cover panel, then check the outlook here.</div>
         </section>
 
         <section class="metrics wrap" aria-label="Protocol overview">
@@ -64,8 +78,9 @@
               <form id="cover-form">
                 <div class="field-block">
                   <label for="location">Coverage location <span>Public coordinates only</span></label>
-                  <div class="location-field"><span class="pin-icon">⌖</span><input id="location" name="location" value="Istanbul, Türkiye" maxlength="64" autocomplete="off" readonly required title="Set the area with coordinates or use your location" /><button type="button" id="locate-me" class="locate-button" title="Use browser location">Use my location</button></div>
-                  <div class="coordinates"><span id="coords-label">41.0082° N, 28.9784° E</span><a href="#" id="edit-coords">Edit coordinates</a></div>
+                  <div class="location-field"><span class="pin-icon">⌖</span><input id="location" name="location" value="Istanbul, Türkiye" maxlength="64" autocomplete="off" required title="Search for the event city" /><button type="button" id="search-location" class="locate-button">Find place</button></div>
+                  <div class="location-results hidden" id="location-results" role="listbox" aria-label="Place search results"></div>
+                  <div class="coordinates"><span id="coords-label">41.0082° N, 28.9784° E</span><span class="location-tools"><button type="button" id="locate-me" class="text-control">Use my location</button><a href="#" id="edit-coords">Edit coordinates</a></span></div>
                   <div class="coord-inputs hidden" id="coord-inputs"><label>Latitude <input id="latitude" inputmode="decimal" value="41.0082" /></label><label>Longitude <input id="longitude" inputmode="decimal" value="28.9784" /></label><button type="button" id="save-coords" class="small-save">Save</button></div>
                 </div>
                 <div class="field-row">
@@ -117,7 +132,7 @@
 
         <section class="pool-band" id="pool-info"><div class="wrap pool-inner"><div><span class="section-kicker light">04 / CONTRACT RESERVE</span><h2 id="pool-info-title">Checking reserve safety…</h2><p id="pool-info-copy">The interface enables funding and withdrawals only after it verifies the owner protected RainCheck V2 contract on Studionet.</p></div><div class="pool-card"><div class="pool-card-head"><span class="pool-token">GEN</span><span class="pool-state"><i></i> <span id="reserve-mode">CHECKING CONTRACT</span></span></div><strong id="pool-card-balance">0.00 <small>GEN</small></strong><div class="pool-progress"><span id="pool-progress"></span></div><div class="pool-card-foot"><span id="reserve-status">Reading available reserve…</span></div><div class="reserve-admin hidden" id="reserve-admin"><label>Add test liquidity (GEN)<input id="fund-amount" type="number" min="0.001" step="0.001" value="0.050" /></label><button type="button" id="fund-pool" class="fund-button" disabled>Add reserve</button><label>Withdraw free reserve (GEN)<input id="withdraw-amount" type="number" min="0.001" step="0.001" value="0.001" /></label><button type="button" id="withdraw-reserve" class="fund-button secondary" disabled>Withdraw free reserve</button><small>Owner only. Active cover payouts remain locked.</small></div></div></div></section>
 
-        <section class="activity-section wrap" id="activity"><div class="section-title-row"><div><span class="section-kicker">05 / ON-CHAIN ACTIVITY</span><h2>Recent covers</h2><p>Live records from the deployed Studionet contract · <a href="https://explorer-studio.genlayer.com/address/0xE25Cb5C035C7E0ae04C5Aa88aB673875bd5F20Ce" target="_blank" rel="noreferrer">open contract explorer ↗</a></p></div><button class="refresh-button" id="refresh-activity" type="button"><span>↻</span> Refresh</button></div><div class="activity-table"><div class="table-head"><span>COVER / LOCATION</span><span>EVENT DAY</span><span>TRIGGER</span><span>STATUS</span><span>PAYOUT</span></div><div class="empty-state" id="empty-activity"><span class="empty-icon">⌁</span><b>No covers yet</b><span>On-chain covers appear here after a funded cover is created. Use the read-only Evidence Lab to test real archived readings without a wallet.</span></div><div class="activity-rows" id="activity-rows"></div></div></section>
+        <section class="activity-section wrap" id="activity"><div class="section-title-row"><div><span class="section-kicker">05 / ON-CHAIN ACTIVITY</span><h2>Recent covers</h2><p>Live records from the deployed Studionet contract · <a href="https://explorer-studio.genlayer.com/address/0xE25Cb5C035C7E0ae04C5Aa88aB673875bd5F20Ce" target="_blank" rel="noreferrer">open contract explorer ↗</a></p></div><div class="refresh-controls"><button class="refresh-button" id="refresh-activity" type="button"><span aria-hidden="true">↻</span> Refresh</button><small id="refresh-status" role="status" aria-live="polite">Waiting for the first contract read…</small></div></div><div class="activity-table"><div class="table-head"><span>COVER / LOCATION</span><span>EVENT DAY</span><span>TRIGGER</span><span>STATUS</span><span>PAYOUT</span></div><div class="empty-state" id="empty-activity"><span class="empty-icon">⌁</span><b>No covers yet</b><span>On-chain covers appear here after a funded cover is created. Use the read-only Evidence Lab to test real archived readings without a wallet.</span></div><div class="activity-rows" id="activity-rows"></div></div></section>
 
         <section class="proof-steps wrap"><div><span class="section-kicker">WHY GENLAYER?</span><h2>A decision that<br /><em>doesn’t rely on one server.</em></h2><p>Weather numbers are public. Whether those numbers meet your agreed condition is what the Intelligent Contract settles through validator consensus.</p></div><div class="steps-grid"><article><span class="step-number">01</span><b>Agree before the weather</b><p>Location, day, threshold, premium and payout become immutable cover terms.</p></article><article><span class="step-number">02</span><b>Check public evidence</b><p>The contract reads the defined archive after the covered day. Validators independently re-check the evidence.</p></article><article><span class="step-number">03</span><b>Settle from the pool</b><p>A structured verdict updates contract state. A confirmed claim can request its capped GEN payout.</p></article></div></section>
 
