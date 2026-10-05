@@ -1,11 +1,11 @@
-import { createClient } from "genlayer-js";
-import { studionet } from "genlayer-js/chains";
-import { ExecutionResult, TransactionStatus, type CalldataEncodable } from "genlayer-js/types";
+import type { createClient } from "genlayer-js";
+import type { CalldataEncodable } from "genlayer-js/types";
 import { buildSourceUrls, decideRainfall, formatRain } from "./weather";
 import { fetchRainEvidence } from "./evidence";
 import { createAuditBundle, downloadAuditBundle, type AuditSnapshot } from "./audit";
 import { fetchDayForecast, forecastGuidance, type DayForecast } from "./forecast";
 import { searchPlaces, type Place } from "./places";
+import { createSavedEvent, eventBookCsv, EVENT_BOOK_KEY, readEventBook, updateSavedEvent, writeEventBook, type SavedEvent } from "./event-book";
 import "./style.css";
 
 declare global { interface Window { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } } }
@@ -27,6 +27,8 @@ const walletLabel = $("wallet-label");
 const toast = $("toast");
 const demoDialog = $("demo-dialog") as HTMLDialogElement;
 let connectedAddress = "";
+type GenLayerSDK = { createClient: typeof createClient; studionet: (typeof import("genlayer-js/chains"))["studionet"]; ExecutionResult: (typeof import("genlayer-js/types"))["ExecutionResult"]; TransactionStatus: (typeof import("genlayer-js/types"))["TransactionStatus"] };
+let loadedGenLayerSDK: GenLayerSDK | undefined;
 let readClient: ReturnType<typeof createClient> | undefined;
 let walletClient: ReturnType<typeof createClient> | undefined;
 let toastTimer = 0;
@@ -46,6 +48,23 @@ let latestForecast: DayForecast | null = null;
 let latestForecastLocation = "";
 let forecastInProgress = false;
 let resolvedLocationLabel = "Istanbul, Türkiye";
+function loadEventBook() {
+  try { return readEventBook(window.localStorage); }
+  catch { return []; }
+}
+
+async function loadGenLayerSDK(): Promise<GenLayerSDK> {
+  if (!loadedGenLayerSDK) {
+    const [client, chains, types] = await Promise.all([
+      import("genlayer-js"), import("genlayer-js/chains"), import("genlayer-js/types"),
+    ]);
+    loadedGenLayerSDK = { createClient: client.createClient, studionet: chains.studionet, ExecutionResult: types.ExecutionResult, TransactionStatus: types.TransactionStatus };
+  }
+  return loadedGenLayerSDK;
+}
+
+let savedEvents: SavedEvent[] = loadEventBook();
+let watchlistRefreshInProgress = false;
 
 function showToast(message: string, kind: "success" | "error" | "info" = "info") {
   toast.textContent = message;
@@ -201,8 +220,153 @@ function downloadForecastBrief() {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = `raincheck-event-brief-${latestForecast.eventDate}.json`;
+  document.body.append(anchor);
   anchor.click();
+  anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function saveEventBook() {
+  try {
+    writeEventBook(window.localStorage, savedEvents);
+    return true;
+  } catch {
+    $("watchlist-status").textContent = "This browser could not save your event list. Check available storage or privacy settings and try again.";
+    return false;
+  }
+}
+
+function renderWatchlist() {
+  const grid = $("watchlist-grid");
+  grid.replaceChildren();
+  const refresh = $("refresh-watchlist") as HTMLButtonElement;
+  const exportButton = $("export-watchlist") as HTMLButtonElement;
+  refresh.disabled = savedEvents.length === 0 || watchlistRefreshInProgress;
+  exportButton.disabled = savedEvents.length === 0;
+  if (!savedEvents.length) {
+    const empty = document.createElement("div");
+    empty.className = "watchlist-empty";
+    empty.innerHTML = "<b>No event plans saved yet.</b><span>Choose a location, date and rain trigger above, then add your first event here.</span>";
+    grid.append(empty);
+    return;
+  }
+  const now = Date.now();
+  for (const event of savedEvents) {
+    const card = document.createElement("article");
+    card.className = "watch-event-card";
+    const top = document.createElement("div"); top.className = "watch-event-top";
+    const identity = document.createElement("div");
+    const title = document.createElement("h3"); title.textContent = event.title;
+    const location = document.createElement("p"); location.textContent = event.location;
+    identity.append(title, location);
+    const date = document.createElement("span"); date.className = "watch-event-date";
+    date.textContent = new Date(`${event.eventDate}T00:00:00.000Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+    top.append(identity, date);
+    const metrics = document.createElement("div"); metrics.className = "watch-event-metrics";
+    const forecast = document.createElement("div");
+    const rain = document.createElement("b"); rain.textContent = event.expectedRainMm === null ? "Not checked" : `${formatRain(event.expectedRainMm)} forecast`;
+    const trigger = document.createElement("small"); trigger.textContent = `Trigger ≥ ${event.thresholdMm} mm`;
+    forecast.append(rain, trigger);
+    const load = document.createElement("div");
+    const loadValue = document.createElement("b"); loadValue.textContent = event.thresholdLoadPercent === null ? "—" : `${event.thresholdLoadPercent.toFixed(0)}%`;
+    const loadLabel = document.createElement("small"); loadLabel.textContent = "of trigger";
+    load.append(loadValue, loadLabel);
+    const chance = document.createElement("div");
+    const chanceValue = document.createElement("b"); chanceValue.textContent = event.maxProbabilityPercent === null ? "—" : `${event.maxProbabilityPercent}%`;
+    const chanceLabel = document.createElement("small"); chanceLabel.textContent = "highest hourly chance";
+    chance.append(chanceValue, chanceLabel);
+    metrics.append(forecast, load, chance);
+    const info = document.createElement("p"); info.className = "watch-event-info";
+    if (event.lastError) info.textContent = `Could not refresh · ${event.lastError}`;
+    else if (!event.checkedAt) info.textContent = "No forecast saved yet. This date may be outside the current forecast window.";
+    else if (now - Date.parse(event.checkedAt) > 3 * 60 * 60 * 1000) info.textContent = `Last checked ${new Date(event.checkedAt).toLocaleString()} · outlook may have changed.`;
+    else info.textContent = `Forecast checked ${new Date(event.checkedAt).toLocaleString()} · Open-Meteo`;
+    const actions = document.createElement("div"); actions.className = "watch-event-actions";
+    const check = document.createElement("button"); check.type = "button"; check.className = "text-control"; check.dataset.eventAction = "check"; check.dataset.eventId = event.id; check.textContent = "Refresh forecast"; check.disabled = watchlistRefreshInProgress;
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "text-control remove-event"; remove.dataset.eventAction = "remove"; remove.dataset.eventId = event.id; remove.textContent = "Remove"; remove.disabled = watchlistRefreshInProgress;
+    actions.append(check, remove);
+    card.append(top, metrics, info, actions);
+    grid.append(card);
+  }
+}
+
+function saveCurrentEvent(event: SubmitEvent) {
+  event.preventDefault();
+  if (!form.reportValidity()) return;
+  if (formatLocation() !== resolvedLocationLabel) {
+    $("watchlist-status").textContent = "Search for the event city and select a result, or save valid coordinates before adding this event.";
+    return;
+  }
+  const input = $("saved-event-title") as HTMLInputElement;
+  const eventDate = dateInput.value;
+  const location = formatLocation();
+  const title = input.value.trim() || `${location} · ${eventDate}`;
+  try {
+    savedEvents = createSavedEvent(savedEvents, {
+      id: globalThis.crypto?.randomUUID?.() ?? `event-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      title, location, latitude: Number(latitudeInput.value), longitude: Number(longitudeInput.value),
+      eventDate, thresholdMm: Number(thresholdInput.value), createdAt: new Date().toISOString(),
+    });
+    const saved = savedEvents[0];
+    if (latestForecast && latestForecast.eventDate === saved.eventDate && latestForecast.latitude === saved.latitude && latestForecast.longitude === saved.longitude && latestForecast.thresholdMm === saved.thresholdMm) {
+      savedEvents = updateSavedEvent(savedEvents, saved.id, { checkedAt: latestForecast.retrievedAt, expectedRainMm: latestForecast.expectedRainMm, thresholdLoadPercent: latestForecast.thresholdLoadPercent, maxProbabilityPercent: latestForecast.maxProbabilityPercent });
+    }
+    if (!saveEventBook()) return;
+    input.value = "";
+    renderWatchlist();
+    $("watchlist-status").textContent = `Saved “${title}” in this browser. Refresh its forecast here when you want a current outlook.`;
+  } catch (error) {
+    $("watchlist-status").textContent = error instanceof Error ? error.message : "Could not save this event.";
+  }
+}
+
+async function refreshSavedEvent(id: string) {
+  const event = savedEvents.find((item) => item.id === id);
+  if (!event) return;
+  try {
+    const forecast = await fetchDayForecast(event.latitude, event.longitude, event.eventDate, event.thresholdMm);
+    savedEvents = updateSavedEvent(savedEvents, id, {
+      checkedAt: forecast.retrievedAt, expectedRainMm: forecast.expectedRainMm,
+      thresholdLoadPercent: forecast.thresholdLoadPercent, maxProbabilityPercent: forecast.maxProbabilityPercent, lastError: null,
+    });
+  } catch (error) {
+    savedEvents = updateSavedEvent(savedEvents, id, { checkedAt: new Date().toISOString(), lastError: error instanceof Error ? error.message : "Forecast refresh failed." });
+  }
+  saveEventBook();
+  renderWatchlist();
+}
+
+async function refreshAllSavedEvents() {
+  if (watchlistRefreshInProgress || !savedEvents.length) return;
+  watchlistRefreshInProgress = true;
+  renderWatchlist();
+  const status = $("watchlist-status");
+  let completed = 0;
+  for (const event of [...savedEvents]) {
+    completed += 1;
+    status.textContent = `Refreshing event ${completed} of ${savedEvents.length}: ${event.title}…`;
+    await refreshSavedEvent(event.id);
+  }
+  watchlistRefreshInProgress = false;
+  renderWatchlist();
+  const failed = savedEvents.filter((event) => event.lastError).length;
+  status.textContent = failed
+    ? `Updated ${savedEvents.length - failed} of ${savedEvents.length} events. ${failed} need attention; dates outside the provider’s current window can be checked later.`
+    : `All ${savedEvents.length} saved event forecasts refreshed. Forecasts are planning information, not a contract decision.`;
+}
+
+function exportWatchlist() {
+  if (!savedEvents.length) return;
+  const blob = new Blob([eventBookCsv(savedEvents)], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `raincheck-event-portfolio-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  $("watchlist-status").textContent = "Portfolio CSV downloaded. It includes each saved event’s latest forecast and a note that forecasts are not payout decisions.";
 }
 
 function renderActivity() {
@@ -355,10 +519,11 @@ async function connectWallet() {
     return;
   }
   try {
+    const sdk = await loadGenLayerSDK();
     const accounts = await window.ethereum.request({ method: "eth_requestAccounts" }) as string[];
     if (!accounts?.[0]) throw new Error("No wallet account was returned.");
     const nextAddress = accounts[0];
-    const nextWalletClient = createClient({ chain: studionet, account: nextAddress as `0x${string}`, provider: window.ethereum as never });
+    const nextWalletClient = sdk.createClient({ chain: sdk.studionet, account: nextAddress as `0x${string}`, provider: window.ethereum as never });
     await nextWalletClient.connect("studionet");
     connectedAddress = nextAddress;
     walletClient = nextWalletClient;
@@ -384,8 +549,9 @@ async function sendContractWrite(functionName: string, args: unknown[] = [], val
       value,
     });
     showToast("Transaction sent. Waiting for GenLayer finality…");
-    const receipt = await walletClient.waitForTransactionReceipt({ hash, status: TransactionStatus.FINALIZED });
-    if (receipt.txExecutionResultName !== ExecutionResult.FINISHED_WITH_RETURN) {
+    const sdk = await loadGenLayerSDK();
+    const receipt = await walletClient.waitForTransactionReceipt({ hash, status: sdk.TransactionStatus.FINALIZED });
+    if (receipt.txExecutionResultName !== sdk.ExecutionResult.FINISHED_WITH_RETURN) {
       throw new Error(`Contract call failed: ${receipt.statusName} / ${receipt.txExecutionResultName}`);
     }
   return hash;
@@ -780,6 +946,34 @@ $("withdraw-reserve").addEventListener("click", withdrawPool);
 $("refresh-activity").addEventListener("click", () => { void refreshPool(true); });
 $("run-forecast").addEventListener("click", () => { void checkForecast(); });
 $("export-forecast").addEventListener("click", downloadForecastBrief);
+$("save-event-form").addEventListener("submit", saveCurrentEvent);
+$("refresh-watchlist").addEventListener("click", () => { void refreshAllSavedEvents(); });
+$("export-watchlist").addEventListener("click", exportWatchlist);
+$("watchlist-grid").addEventListener("click", async (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-event-action]");
+  if (!button?.dataset.eventId || watchlistRefreshInProgress) return;
+  const { eventId, eventAction } = button.dataset;
+  if (eventAction === "remove") {
+    savedEvents = savedEvents.filter((item) => item.id !== eventId);
+    if (saveEventBook()) {
+      renderWatchlist();
+      $("watchlist-status").textContent = "Event removed from this browser’s portfolio.";
+    }
+    return;
+  }
+  if (eventAction === "check") {
+    watchlistRefreshInProgress = true;
+    renderWatchlist();
+    $("watchlist-status").textContent = "Requesting a fresh event forecast…";
+    await refreshSavedEvent(eventId);
+    watchlistRefreshInProgress = false;
+    renderWatchlist();
+    const updated = savedEvents.find((item) => item.id === eventId);
+    $("watchlist-status").textContent = updated?.lastError
+      ? `Forecast not refreshed: ${updated.lastError}`
+      : `Forecast refreshed for ${updated?.title ?? "event"}. Planning outlook only; no payout decision was made.`;
+  }
+});
 $("search-location").addEventListener("click", () => { void findPlaces(); });
 $("location").addEventListener("input", () => syncPlannerInputs());
 $("date-options").addEventListener("click", (event) => {
@@ -851,7 +1045,25 @@ initializeEvidenceLab();
 updateThreshold();
 setMode();
 renderActivity();
+renderWatchlist();
+window.addEventListener("storage", (event) => {
+  if (event.key === EVENT_BOOK_KEY) {
+    savedEvents = loadEventBook();
+    renderWatchlist();
+  }
+});
 if (CONTRACT_ADDRESS) {
-  readClient = createClient({ chain: studionet });
-  void refreshPool();
+  void (async () => {
+    try {
+      const sdk = await loadGenLayerSDK();
+      readClient = sdk.createClient({ chain: sdk.studionet });
+      await refreshPool();
+    } catch (error) {
+      contractReadState = "unavailable";
+      updateHeroMonitor();
+      $("refresh-status").textContent = error instanceof Error ? `GenLayer client could not start: ${error.message}` : "GenLayer client could not start.";
+      $("reserve-status").textContent = "Contract connection unavailable";
+      updateCoverAvailability();
+    }
+  })();
 }

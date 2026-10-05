@@ -63,6 +63,20 @@
           <div class="desk-status" id="forecast-status" role="status" aria-live="polite">Set your event place, day and rainfall trigger in the cover panel, then check the outlook here.</div>
         </section>
 
+        <section class="event-watchlist wrap" id="watchlist" aria-labelledby="watchlist-title">
+          <div class="watchlist-heading">
+            <div><span class="section-kicker">YOUR LOCAL EVENT PORTFOLIO</span><h2 id="watchlist-title">Keep every event on your radar.</h2><p>Save event plans, recheck their latest outlooks together and export a team-ready CSV.</p></div>
+            <div class="watchlist-actions"><button class="button secondary" id="refresh-watchlist" type="button" disabled>Refresh all forecasts</button><button class="audit-export" id="export-watchlist" type="button" disabled>Export portfolio CSV</button></div>
+          </div>
+          <form class="watchlist-save" id="save-event-form">
+            <label for="saved-event-title">Event name <span>Optional</span></label>
+            <input id="saved-event-title" maxlength="80" placeholder="e.g. Saturday market or garden wedding" />
+            <button class="button primary" id="save-event" type="submit">Save this event</button>
+          </form>
+          <div class="watchlist-status" id="watchlist-status" role="status" aria-live="polite">Your saved events stay in this browser. Forecasts are not checked in the background; refresh them here when you need an update.</div>
+          <div class="watchlist-grid" id="watchlist-grid" aria-live="polite"></div>
+        </section>
+
         <section class="metrics wrap" aria-label="Protocol overview">
           <article><span class="metric-label">AVAILABLE COVER RESERVE <b class="hint" title="Read-only Studionet reserve">ⓘ</b></span><strong id="pool-stat">0.00 <small>GEN</small></strong><span class="metric-note"><i class="metric-dot green"></i> Existing contract reserve · read-only</span></article>
           <article><span class="metric-label">TOTAL COVERS</span><strong id="covers-stat">0</strong><span class="metric-note"><i class="metric-dot blue"></i> Records on this contract</span></article>

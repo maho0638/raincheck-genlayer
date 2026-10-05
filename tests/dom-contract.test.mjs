@@ -32,3 +32,15 @@ test("event planner exposes location, forecast, result and honest commercial bou
   assert.match(main, /request\.location !== formatLocation\(\)/);
   assert.match(main, /Forecast only\. Not a GenLayer validator verdict/);
 });
+
+test("event portfolio exposes local persistence, manual refresh, duplicate protection and safe CSV export", () => {
+  assert.match(html, /id="watchlist"/);
+  assert.match(html, /id="save-event-form"/);
+  assert.match(html, /id="refresh-watchlist"/);
+  assert.match(html, /id="export-watchlist"/);
+  assert.match(html, /not checked in the background/i);
+  assert.match(main, /form\.reportValidity\(\)/);
+  assert.match(main, /formatLocation\(\) !== resolvedLocationLabel/);
+  assert.match(main, /await refreshSavedEvent\(event\.id\)/);
+  assert.match(main, /eventBookCsv\(savedEvents\)/);
+});

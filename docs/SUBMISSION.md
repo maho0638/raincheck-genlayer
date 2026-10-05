@@ -7,10 +7,11 @@ RainCheck lets a user define rainfall-cover terms before an event, then uses Gen
 ## What to review
 
 1. Open **Event planner**. Search/select a place, keep the UTC date and threshold synchronized with cover setup, and check the hourly forecast. Compare the trigger-load estimate and wettest hour with the forecast source. Export the JSON brief; it includes attribution and states that it is a forecast, not a payout decision.
-2. Read the fixed test terms in **Protection**: 0.002 GEN premium and 0.010 GEN maximum payout.
-3. Open **Evidence Lab**. Choose a past UTC day and location, then fetch Open-Meteo Archive and NASA POWER readings. Compare the browser preview result with each source link. It is read-only and does not imply a contract verdict.
-4. Open the Studionet explorer link and compare contract state with the read-only activity view.
-5. Review `contracts/rain_check.py` and the tests for matching evidence, no trigger, source conflict, unavailable data/retry, reserve accounting and one-time payout behavior.
+2. Save several named events in **Your local event portfolio**, refresh one or all forecasts, then export and review the CSV. These records stay in the browser and are not background monitoring or alerts.
+3. Read the fixed test terms in **Protection**: 0.002 GEN premium and 0.010 GEN maximum payout.
+4. Open **Evidence Lab**. Choose a past UTC day and location, then fetch Open-Meteo Archive and NASA POWER readings. Compare the browser preview result with each source link. It is read-only and does not imply a contract verdict.
+5. Open the Studionet explorer link and compare contract state with the read-only activity view.
+6. Review `contracts/rain_check.py` and the tests for matching evidence, no trigger, source conflict, unavailable data/retry, reserve accounting and one-time payout behavior.
 
 ## GenLayer-specific implementation
 
@@ -35,4 +36,4 @@ RainCheck demonstrates a real GenLayer consensus path, two independently fetched
 
 ## Current interface verification candidate
 
-The unreleased working copy adds city search, a working event forecast desk with 24-hour detail, lower-rain alternative dates, threshold-relative action guidance, and a downloadable attributed event brief. It keeps forecasts distinct from archive evidence and on-chain settlement. It also retains the verified-contract monitor, refresh feedback, per-cover case files, and Evidence Lab from the prior candidate. No contract change or deployment is part of this UI feature. Automated checks pass; browser visual/interaction QA is still pending because the available browser blocks localhost and no local browser automation runtime is installed. Complete that check and the full release checklist before publishing this candidate.
+The unreleased working copy adds city search, an hourly event forecast desk, lower-rain alternative dates, threshold-relative action guidance, a downloadable attributed brief, and a 20-event browser-local portfolio with one-click or batch forecast refresh and a shareable CSV. It checks city selection before saving and protects downloaded CSV text from spreadsheet formulas. The large GenLayer client is loaded separately so it does not block the first page render. It keeps forecasts distinct from archive evidence and on-chain settlement, and retains the verified-contract monitor, refresh feedback, per-cover case files, and Evidence Lab from the prior candidate. No contract change or deployment is part of this UI feature. The seven JavaScript test files, TypeScript check, production build, ten Python contract tests, Direct Mode scenarios, GenVM lint, and Python compilation pass. The build no longer emits the prior oversized-chunk warning. Visual browser QA is still pending: this environment's browser cannot open the local preview, and the local browser runtime could not be installed. Do not publish this candidate until that visual interaction check is complete.
