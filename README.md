@@ -5,6 +5,7 @@ RainCheck is a GenLayer Studionet prototype for rainfall-triggered micro-cover. 
 ## Product flow
 
 - **Read-only Evidence Lab:** Fetches archived values for a chosen past day from both public APIs in the browser. The comparison is labeled as a local preview and never submits a transaction.
+- **Evidence audit export:** The Evidence Lab and each on-chain cover expose the recorded readings, decision explanation, source links, and a downloadable JSON snapshot. A SHA-256 checksum covers the snapshot; browser-local fingerprints show whether its readings or outcome changed since the last export for that record. The checksum is an integrity aid, not a GenLayer validator signature or proof of source authenticity.
 - **Contract explorer:** The page reads the deployed Studionet contract reserve and cover records without a wallet.
 - **Wallet writes:** The legacy deployment stays read-only because its contract has no reserve withdrawal function. The production UI points to the deployed V2 contract and unlocks writes only after its version and owner verify on Studionet. V2 restricts funding and withdrawals to its deployer and caps withdrawals at free reserve after locked payouts. Do not fund the legacy address.
 - **Sample walkthrough:** Clearly illustrative and labeled; it is not represented as a real contract record.

@@ -3,6 +3,7 @@ import { studionet } from "genlayer-js/chains";
 import { ExecutionResult, TransactionStatus, type CalldataEncodable } from "genlayer-js/types";
 import { buildSourceUrls, decideRainfall, formatRain } from "./weather";
 import { fetchRainEvidence } from "./evidence";
+import { createAuditBundle, downloadAuditBundle, type AuditSnapshot } from "./audit";
 import "./style.css";
 
 declare global { interface Window { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> } } }
@@ -33,8 +34,9 @@ let verifiedV2 = false;
 let contractOwner = "";
 const MIN_AVAILABLE_FOR_COVER = 8_000_000_000_000_000n;
 
-type Activity = { title: string; location: string; date: string; threshold: number; status: string; payout: string; sample?: boolean; coverId?: number };
+type Activity = { title: string; location: string; date: string; threshold: number; status: string; payout: string; sample?: boolean; coverId?: number; audit?: AuditSnapshot };
 const activities: Activity[] = [];
+let latestLabEvidence: Awaited<ReturnType<typeof fetchRainEvidence>> | null = null;
 
 function showToast(message: string, kind: "success" | "error" | "info" = "info") {
   toast.textContent = message;
@@ -75,8 +77,53 @@ function renderActivity() {
       else if (item.status === "APPROVED") action = `<button class="row-action" data-action="claim" data-id="${item.coverId}">Claim payout</button>`;
       else if (item.status === "SOURCE_REVIEW") action = `<button class="row-action" data-action="retry" data-id="${item.coverId}">Re-check</button><button class="row-action secondary" data-action="refund" data-id="${item.coverId}">Refund premium</button>`;
     }
-    row.innerHTML = `<span class="activity-place"><i>◉</i><span><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.location)}${item.sample ? " · illustrative" : ""}</small></span></span><span>${escapeHtml(item.date)}</span><span>≥ ${item.threshold} mm</span><span><i class="status-pill ${badge}">${escapeHtml(item.status === "SAMPLE" ? "Sample proof" : item.status.replaceAll("_", " "))}</i></span><span>${escapeHtml(item.payout)}${action ? `<span class="row-actions">${action}</span>` : ""}</span>`;
+    const auditDetails = item.audit ? `<details class="activity-audit"><summary>Evidence and decision details</summary><div class="audit-detail-grid"><span>Open-Meteo</span><b>${escapeHtml(auditValue(item.audit, "openMeteoMm"))}</b><span>NASA POWER</span><b>${escapeHtml(auditValue(item.audit, "nasaPowerMm"))}</b><span>Decision</span><b>${escapeHtml(auditDecision(item.audit))}</b></div><p>${escapeHtml(auditReason(item.status, item.threshold, item.audit))}</p><button class="audit-export" type="button" data-evidence-export="${item.coverId}">Download SHA-256 evidence JSON</button><small class="audit-export-status" id="audit-export-status-${item.coverId}" role="status"></small></details>` : "";
+    row.innerHTML = `<span class="activity-place"><i>◉</i><span><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.location)}${item.sample ? " · illustrative" : ""}</small></span></span><span>${escapeHtml(item.date)}</span><span>≥ ${item.threshold} mm</span><span><i class="status-pill ${badge}">${escapeHtml(item.status === "SAMPLE" ? "Sample proof" : item.status.replaceAll("_", " "))}</i></span><span>${escapeHtml(item.payout)}${action ? `<span class="row-actions">${action}</span>` : ""}</span>${auditDetails}`;
     activityRows.append(row);
+  }
+}
+
+function auditValue(snapshot: AuditSnapshot, key: "openMeteoMm" | "nasaPowerMm") {
+  const sources = snapshot.sources as Record<string, unknown> | undefined;
+  const value = sources?.[key];
+  return typeof value === "number" ? formatRain(value) : "No validated reading recorded";
+}
+
+function auditDecision(snapshot: AuditSnapshot) {
+  const decision = snapshot.decision as Record<string, unknown> | undefined;
+  return String(decision?.contractStatus ?? decision?.outcome ?? "Pending").replaceAll("_", " ");
+}
+
+function auditReason(status: string, threshold: number, snapshot: AuditSnapshot) {
+  const sources = snapshot.sources as Record<string, unknown> | undefined;
+  const primary = sources?.openMeteoMm;
+  const corroborating = sources?.nasaPowerMm;
+  if (status === "ACTIVE") return "GenLayer has not resolved this cover yet. The chain record contains no rainfall measurements, so no claim outcome is implied.";
+  if (status === "DATA_UNAVAILABLE") return "At least one public source did not provide a valid reading. The contract leaves the claim retryable and does not treat missing data as zero rainfall.";
+  if (status === "SOURCE_REVIEW") return `The sources disagree about the ${threshold} mm threshold (Open-Meteo: ${typeof primary === "number" ? `${formatRain(primary)} mm` : "missing"}; NASA POWER: ${typeof corroborating === "number" ? `${formatRain(corroborating)} mm` : "missing"}). The contract pauses payout for review.`;
+  if (["APPROVED", "PAID"].includes(status)) return `Both recorded sources met the ${threshold} mm trigger. ${status === "PAID" ? "The approved payout has been paid." : "The claim is approved and can request its capped payout."}`;
+  if (status === "NO_TRIGGER") return `Both recorded sources were below the ${threshold} mm trigger; the payout reservation was released.`;
+  if (status === "REFUNDED") return "The premium was refunded after the sources entered review.";
+  return "The contract's current status and stored source measurements are shown above.";
+}
+
+async function exportEvidence(snapshot: AuditSnapshot, key: string, filename: string, statusElement?: HTMLElement) {
+  try {
+    const prior = localStorage.getItem(key);
+    const bundle = await createAuditBundle(snapshot, prior);
+    localStorage.setItem(key, bundle.change.fingerprint);
+    downloadAuditBundle(bundle, filename);
+    const message = bundle.change.changedSincePreviousExport
+      ? "Evidence changed since your previous export."
+      : bundle.change.previousFingerprint === null
+        ? "First evidence export saved with a SHA-256 checksum."
+        : "SHA-256 created; source evidence matches the previous export.";
+    if (statusElement) statusElement.textContent = `${message} ${bundle.integrity.digest.slice(0, 16)}…`;
+    else showToast(message, bundle.change.changedSincePreviousExport ? "info" : "success");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Evidence export failed.";
+    if (statusElement) statusElement.textContent = message;
+    else showToast(message, "error");
   }
 }
 
@@ -210,6 +257,26 @@ async function refreshPool() {
         title: `Rain cover #${i + 1}`, location: `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
         date: String(entry.event_date), threshold: Number(entry.threshold_mm),
         status: String(entry.status), payout: entry.status === "PAID" ? "Paid" : `${(Number(entry.payout_wei) / 1e18).toFixed(3)} GEN`, coverId: i + 1,
+        audit: {
+          recordType: "RainCheck on-chain cover",
+          network: "GenLayer Studionet",
+          contractAddress: CONTRACT_ADDRESS,
+          coverId: i + 1,
+          coverOwner: String(entry.owner ?? ""),
+          eventDate: String(entry.event_date), latitude: lat, longitude: lon,
+          thresholdMm: Number(entry.threshold_mm),
+          sources: {
+            openMeteoMm: Number(entry.open_meteo_mm_x10) >= 0 ? Number(entry.open_meteo_mm_x10) / 10 : null,
+            nasaPowerMm: Number(entry.nasa_power_mm_x10) >= 0 ? Number(entry.nasa_power_mm_x10) / 10 : null,
+            openMeteoError: Number(entry.open_meteo_mm_x10) < 0 ? "No valid on-chain measurement recorded." : null,
+            nasaPowerError: Number(entry.nasa_power_mm_x10) < 0 ? "No valid on-chain measurement recorded." : null,
+            openMeteoUrl: buildSourceUrls(lat, lon, String(entry.event_date)).primary,
+            nasaPowerUrl: buildSourceUrls(lat, lon, String(entry.event_date)).corroborating,
+          },
+          decision: { contractStatus: String(entry.status), outcome: auditReason(String(entry.status), Number(entry.threshold_mm), { sources: { openMeteoMm: Number(entry.open_meteo_mm_x10) >= 0 ? Number(entry.open_meteo_mm_x10) / 10 : null, nasaPowerMm: Number(entry.nasa_power_mm_x10) >= 0 ? Number(entry.nasa_power_mm_x10) / 10 : null } }) },
+          retrievedAt: new Date().toISOString(),
+          evidenceBoundary: "Stored contract values are on-chain; source URLs are provided for independent review. This export is not a validator signature.",
+        },
       });
     }
     renderActivity();
@@ -299,9 +366,11 @@ function initializeEvidenceLab() {
     const openValue = $("lab-open-value");
     const nasaValue = $("lab-nasa-value");
     const openError = $("lab-open-error");
-    const nasaError = $("lab-nasa-error");
-    button.disabled = true;
-    result.classList.add("hidden");
+      const nasaError = $("lab-nasa-error");
+      button.disabled = true;
+      result.classList.add("hidden");
+      latestLabEvidence = null;
+      ($("export-lab-evidence") as HTMLButtonElement).disabled = true;
     status.textContent = "Requesting archived readings from both public sources…";
     try {
       const preview = await fetchRainEvidence(
@@ -310,6 +379,7 @@ function initializeEvidenceLab() {
         dateField.value,
         Number(($("lab-threshold") as HTMLInputElement).value),
       );
+      latestLabEvidence = preview;
       const openLink = $("lab-open-link") as HTMLAnchorElement;
       const nasaLink = $("lab-nasa-link") as HTMLAnchorElement;
       openLink.href = preview.sourceUrls.primary;
@@ -321,6 +391,14 @@ function initializeEvidenceLab() {
       $("lab-decision-value").textContent = preview.decision.replaceAll("_", " ");
       $("lab-decision-value").dataset.decision = preview.decision.toLowerCase();
       $("lab-retrieved").textContent = `Retrieved ${new Date(preview.retrievedAt).toLocaleString()} · UTC day ${preview.eventDate}`;
+      $("lab-reason").textContent = preview.decision === "APPROVED"
+        ? `Both sources meet the ${preview.thresholdMm} mm trigger.`
+        : preview.decision === "NO_TRIGGER"
+          ? `Both sources are below the ${preview.thresholdMm} mm trigger.`
+          : preview.decision === "SOURCE_REVIEW"
+            ? `The sources disagree about the ${preview.thresholdMm} mm trigger; the contract would pause for review.`
+            : "A valid reading is missing. Missing data is not treated as zero rainfall.";
+      ($("export-lab-evidence") as HTMLButtonElement).disabled = false;
       result.classList.remove("hidden");
       status.textContent = preview.decision === "DATA_UNAVAILABLE"
         ? "At least one source did not return a valid reading. The result is unavailable, not a zero-rain verdict."
@@ -431,6 +509,17 @@ $("withdraw-reserve").addEventListener("click", withdrawPool);
 $("refresh-activity").addEventListener("click", refreshPool);
 activityRows.addEventListener("click", async (event) => {
   const target = event.target as HTMLElement;
+  const exportButton = target.closest<HTMLButtonElement>("button[data-evidence-export]");
+  if (exportButton) {
+    const item = activities.find((entry) => entry.coverId === Number(exportButton.dataset.evidenceExport));
+    if (item?.audit) {
+      const status = $(
+        `audit-export-status-${item.coverId}`,
+      );
+      await exportEvidence(item.audit, `raincheck:cover:${item.coverId}`, `raincheck-cover-${item.coverId}-evidence.json`, status);
+    }
+    return;
+  }
   const button = target.closest<HTMLButtonElement>("button[data-action]");
   if (!button) return;
   const coverId = Number(button.dataset.id);
@@ -446,6 +535,27 @@ activityRows.addEventListener("click", async (event) => {
     button.disabled = false;
     showToast(error instanceof Error ? error.message : "Contract action failed.", "error");
   }
+});
+$("export-lab-evidence").addEventListener("click", async () => {
+  if (!latestLabEvidence) return;
+  const evidence = latestLabEvidence;
+  const snapshot: AuditSnapshot = {
+    recordType: "RainCheck local Evidence Lab preview",
+    network: "Browser-only public-data comparison; no transaction submitted",
+    eventDate: evidence.eventDate, latitude: evidence.latitude, longitude: evidence.longitude,
+    thresholdMm: evidence.thresholdMm,
+    sources: {
+      openMeteoMm: evidence.openMeteoMm, nasaPowerMm: evidence.nasaPowerMm,
+      openMeteoError: evidence.sourceErrors.openMeteo ?? null,
+      nasaPowerError: evidence.sourceErrors.nasaPower ?? null,
+      openMeteoUrl: evidence.sourceUrls.primary, nasaPowerUrl: evidence.sourceUrls.corroborating,
+    },
+    decision: { outcome: evidence.decision, reason: $("lab-reason").textContent },
+    retrievedAt: evidence.retrievedAt,
+    evidenceBoundary: "This local preview is not a GenLayer validator decision or an on-chain record.",
+  };
+  const key = `raincheck:lab:${evidence.latitude}:${evidence.longitude}:${evidence.eventDate}:${evidence.thresholdMm}`;
+  await exportEvidence(snapshot, key, `raincheck-evidence-${evidence.eventDate}.json`, $("lab-export-status"));
 });
 $("locate-me").addEventListener("click", useBrowserLocation);
 $("edit-coords").addEventListener("click", (event) => { event.preventDefault(); $("coord-inputs").classList.toggle("hidden"); });
