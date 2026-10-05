@@ -29,6 +29,20 @@
       </header>
 
       <main id="top">
+        <section class="event-desk wrap" id="planner" aria-labelledby="planner-title">
+          <div class="desk-heading"><div><span class="section-kicker">YOUR EVENT WEATHER DESK</span><h2 id="planner-title">Check rain risk before event day.</h2><p>Compare the latest hourly forecast with your rainfall limit. No wallet is needed to plan or save events.</p></div><span class="desk-live-tag"><i></i> FORECAST ON DEMAND</span></div>
+          <div class="desk-controls"><div class="desk-location"><span>EVENT LOCATION</span><b id="planner-location">Istanbul, Türkiye</b><small id="planner-coordinates">41.0082° N, 28.9784° E</small></div><div class="desk-selection"><span>EVENT DAY</span><b id="planner-date">—</b><small>UTC · follows cover setup</small></div><div class="desk-selection"><span>RAIN TRIGGER</span><b id="planner-threshold">30 mm</b><small>daily accumulation</small></div><button class="button primary desk-button" id="run-forecast" type="button">Check event outlook</button></div>
+          <div class="desk-result hidden" id="forecast-result">
+            <div class="forecast-summary"><div class="forecast-total"><span>FORECAST RAIN · SELECTED DAY</span><strong id="forecast-total">—</strong><small id="forecast-source-meta">—</small></div><div class="forecast-load"><div><span>RAIN LOAD VS YOUR TRIGGER</span><b id="forecast-load-label">—</b></div><div class="load-track"><i id="forecast-load-bar"></i></div><small id="forecast-load-note">—</small></div><div class="forecast-peak"><span>WETTEST HOUR</span><b id="forecast-peak">—</b><small id="forecast-probability">Rain chance unavailable</small></div></div>
+            <div class="forecast-action" id="forecast-action"><span class="action-mark">!</span><div><b id="forecast-action-title">—</b><p id="forecast-action-copy">—</p></div></div>
+            <div class="date-alternatives"><div><h3>Could you move the date?</h3><p>Lowest-rain future options in this forecast window, using the same trigger.</p></div><div class="date-options" id="date-options"></div></div>
+            <div class="hourly-heading"><div><h3>Hourly rainfall outlook</h3><p>Forecast model output · each value is hourly precipitation in UTC.</p></div><button class="audit-export" id="export-forecast" type="button">Download event brief</button></div>
+            <div class="hourly-grid" id="hourly-grid" aria-label="Hourly precipitation forecast"></div>
+            <p class="forecast-boundary">This is a forecast for event planning, not archived evidence, a GenLayer validator verdict, insurance advice or a promised payout. The 50% and 100% trigger-load bands are planning heuristics; hourly precipitation chance is shown separately. Forecasts change. Recheck close to the event. Powered by <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>; commercial use requires its commercial-use licence.</p>
+          </div>
+          <div class="desk-status" id="forecast-status" role="status" aria-live="polite">Using your current cover settings. <a href="#cover">Change location, date or rainfall limit</a>.</div>
+        </section>
+
         <section class="hero wrap">
           <div class="hero-copy">
             <div class="eyebrow"><span class="eyebrow-dot"></span> WEATHER COVER, WITH A PUBLIC PROOF</div>
@@ -49,19 +63,7 @@
           </div>
         </section>
 
-        <section class="event-desk wrap" id="planner" aria-labelledby="planner-title">
-          <div class="desk-heading"><div><span class="section-kicker">YOUR WEATHER DECISION DESK</span><h2 id="planner-title">Plan around the rain.</h2><p>Get a UTC hourly outlook for the same location, date and rainfall trigger as your cover setup. Use it to make a practical event plan.</p></div><span class="desk-live-tag"><i></i> LIVE FORECAST</span></div>
-          <div class="desk-controls"><div class="desk-location"><span>EVENT LOCATION</span><b id="planner-location">Istanbul, Türkiye</b><small id="planner-coordinates">41.0082° N, 28.9784° E</small></div><div class="desk-selection"><span>EVENT DAY</span><b id="planner-date">—</b><small>UTC · follows cover setup</small></div><div class="desk-selection"><span>RAIN TRIGGER</span><b id="planner-threshold">30 mm</b><small>daily accumulation</small></div><button class="button primary desk-button" id="run-forecast" type="button">Check event outlook</button></div>
-          <div class="desk-result hidden" id="forecast-result">
-            <div class="forecast-summary"><div class="forecast-total"><span>FORECAST RAIN · SELECTED DAY</span><strong id="forecast-total">—</strong><small id="forecast-source-meta">—</small></div><div class="forecast-load"><div><span>RAIN LOAD VS YOUR TRIGGER</span><b id="forecast-load-label">—</b></div><div class="load-track"><i id="forecast-load-bar"></i></div><small id="forecast-load-note">—</small></div><div class="forecast-peak"><span>WETTEST HOUR</span><b id="forecast-peak">—</b><small id="forecast-probability">Rain chance unavailable</small></div></div>
-            <div class="forecast-action" id="forecast-action"><span class="action-mark">!</span><div><b id="forecast-action-title">—</b><p id="forecast-action-copy">—</p></div></div>
-            <div class="date-alternatives"><div><h3>Could you move the date?</h3><p>Lowest-rain future options in this forecast window, using the same trigger.</p></div><div class="date-options" id="date-options"></div></div>
-            <div class="hourly-heading"><div><h3>Hourly rainfall outlook</h3><p>Forecast model output · each value is hourly precipitation in UTC.</p></div><button class="audit-export" id="export-forecast" type="button">Download event brief</button></div>
-            <div class="hourly-grid" id="hourly-grid" aria-label="Hourly precipitation forecast"></div>
-            <p class="forecast-boundary">This is a forecast for event planning, not archived evidence, a GenLayer validator verdict, insurance advice or a promised payout. The 50% and 100% trigger-load bands are planning heuristics; hourly precipitation chance is shown separately. Forecasts change. Recheck close to the event. Powered by <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>; commercial use requires its commercial-use licence.</p>
-          </div>
-          <div class="desk-status" id="forecast-status" role="status" aria-live="polite">Set your event place, day and rainfall trigger in the cover panel, then check the outlook here.</div>
-        </section>
+
 
         <section class="event-watchlist wrap" id="watchlist" aria-labelledby="watchlist-title">
           <div class="watchlist-heading">
